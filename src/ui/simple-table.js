@@ -77,6 +77,9 @@ window.App.simpleTable = (() => {
 
   function render(data, path, onSelect) {
     currentData = data;
+    columnOrder = Object.keys(data[0]);
+    // Tag each row with its original index for stable highlight after sort
+    for (let i = 0; i < currentData.length; i++) currentData[i].__origIdx = i;
     basePath = path;
     onSelectCb = onSelect;
     columnOrder = Object.keys(data[0]);
@@ -95,6 +98,11 @@ window.App.simpleTable = (() => {
 
   function getFilteredData() {
     let data = currentData;
+
+    // Universal filter (highlight rows from JSONPath/regex/path filter)
+    if (_highlightRows) {
+      data = data.filter(row => _highlightRows.has(row.__origIdx));
+    }
 
     // Global search first
     if (searchTerm) {
@@ -201,7 +209,7 @@ window.App.simpleTable = (() => {
     }
     html += '<div class="st-search-wrap"><input class="st-search" id="stSearch" type="text" placeholder="Search table... (use * or ? for wildcards)" value="' + esc(searchTerm) + '"></div>';
     const filterCount = Object.keys(filters).length;
-    html += `<span class="st-info">${rows.length}${searchTerm || filterCount ? ' / ' + currentData.length : ''} rows × ${_cols.length} columns`;
+    html += `<span class="st-info">${rows.length}${searchTerm || filterCount || _highlightRows ? ' / ' + currentData.length : ''} rows × ${_cols.length} columns`;
     if (dateColumns.size > 0) html += ` · ${dateColumns.size} date col${dateColumns.size > 1 ? 's' : ''}`;
     html += `</span>`;
     if (filterCount > 0) html += `<button class="st-btn st-btn-warn" id="stClearFilters">Clear Filters (${filterCount})</button>`;
@@ -263,7 +271,8 @@ window.App.simpleTable = (() => {
     const parts = [];
     for (let i = start; i < end; i++) {
       const row = rows[i];
-      const rowMatch = !hasRowFilter || _highlightRows.has(i);
+      const origIdx = row.__origIdx != null ? row.__origIdx : i;
+      const rowMatch = !hasRowFilter || _highlightRows.has(origIdx);
       const trClass = hasRowFilter && !rowMatch ? ' class="uf-row-hidden"' : '';
       parts.push(`<tr data-idx="${i}"${trClass}><td class="st-td-idx">${i}</td>`);
       for (const col of cols) {
@@ -641,33 +650,14 @@ window.App.simpleTable = (() => {
   function setHighlight(matchedRowIndices, matchedColNames) {
     _highlightRows = matchedRowIndices; // Set<number> or null
     _highlightCols = matchedColNames;   // Set<string> or null
-    // Re-render all active chunks with new highlight state
-    if (_tbodyEl) {
-      _tbodyEl.querySelectorAll('.st-chunk').forEach(chunk => {
-        const start = parseInt(chunk.dataset.start, 10);
-        const end = parseInt(chunk.dataset.end, 10);
-        if (chunk.dataset.recycled === '1') return; // skip recycled, they'll pick up state on rehydrate
-        fillChunk(chunk, start, end);
-      });
-      // Also update column header highlights
-      _tbodyEl.querySelectorAll('th[data-col]').forEach(th => {
-        th.classList.toggle('uf-col-match', !!_highlightCols?.has(th.dataset.col));
-      });
-    }
+    // Rebuild table since filter changes the dataset
+    buildTable();
   }
 
   function clearHighlight() {
     _highlightRows = null;
     _highlightCols = null;
-    if (_tbodyEl) {
-      _tbodyEl.querySelectorAll('.st-chunk').forEach(chunk => {
-        if (chunk.dataset.recycled === '1') return;
-        const start = parseInt(chunk.dataset.start, 10);
-        const end = parseInt(chunk.dataset.end, 10);
-        fillChunk(chunk, start, end);
-      });
-      _tbodyEl.querySelectorAll('th.uf-col-match').forEach(th => th.classList.remove('uf-col-match'));
-    }
+    buildTable();
   }
 
   return { render, setArrays, setHighlight, clearHighlight, getData: () => currentData, getColumns: () => columnOrder.filter(c => !hiddenCols.has(c)), isVisible: () => $('simpleTableView')?.classList.contains('show') };
