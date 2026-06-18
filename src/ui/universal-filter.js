@@ -243,7 +243,7 @@ window.App.universalFilter = (() => {
         }
       }
       window.App.simpleTable.setHighlight(matchedRows, null);
-      $('treeFilterInfo').textContent = `${matchedRows.size}/${data.length} rows`;
+      $('treeFilterInfo').textContent = `${matchedRows.size.toLocaleString()} / ${data.length.toLocaleString()} rows matched`;
     } else {
       // Highlight matching columns, show rows with values in those columns
       for (let i = 0; i < data.length; i++) {
@@ -254,7 +254,7 @@ window.App.universalFilter = (() => {
         }
       }
       window.App.simpleTable.setHighlight(matchedRows, matchedCols);
-      $('treeFilterInfo').textContent = `${matchedCols.size} col${matchedCols.size > 1 ? 's' : ''} · ${matchedRows.size}/${data.length} rows`;
+      $('treeFilterInfo').textContent = `${matchedCols.size} col${matchedCols.size > 1 ? 's' : ''} · ${matchedRows.size.toLocaleString()} / ${data.length.toLocaleString()} rows matched`;
     }
     $('ufResults').style.display = 'none';
     active = true;
@@ -293,7 +293,7 @@ window.App.universalFilter = (() => {
     }
 
     window.App.simpleTable.setHighlight(matchedRows, matchedCols.size > 0 ? matchedCols : null);
-    $('treeFilterInfo').textContent = `${matchedRows.size}/${data.length} rows matched`;
+    $('treeFilterInfo').textContent = `${matchedRows.size.toLocaleString()} / ${data.length.toLocaleString()} rows matched`;
     $('ufResults').style.display = 'none';
     active = true;
   }
@@ -319,7 +319,7 @@ window.App.universalFilter = (() => {
     }
 
     window.App.simpleTable.setHighlight(matchedRows, matchedCols.size > 0 ? matchedCols : null);
-    $('treeFilterInfo').textContent = `${result.length} match${result.length !== 1 ? 'es' : ''} · ${matchedRows.size}/${data.length} rows`;
+    $('treeFilterInfo').textContent = `${matchedRows.size.toLocaleString()} / ${data.length.toLocaleString()} rows matched`;
     active = true;
   }
 
@@ -337,8 +337,7 @@ window.App.universalFilter = (() => {
     }
 
     window.App.simpleTable.setHighlight(matchedRows, null);
-    const existing = $('treeFilterInfo').textContent;
-    $('treeFilterInfo').textContent = existing + ` · ${matchedRows.size}/${data.length} rows`;
+    $('treeFilterInfo').textContent = `${matchedRows.size.toLocaleString()} / ${data.length.toLocaleString()} rows matched`;
   }
 
   // --- Run ---
@@ -376,15 +375,78 @@ window.App.universalFilter = (() => {
       if (regex.test(path)) { el.classList.remove('filter-hidden'); shown++; }
       else el.classList.add('filter-hidden');
     }
-    $('treeFilterInfo').textContent = `${shown}/${total} visible`;
+    const jsonData = getJsonData();
+    const dataTotal = Array.isArray(jsonData) ? jsonData.length : total;
+    $('treeFilterInfo').textContent = `${shown.toLocaleString()} / ${dataTotal.toLocaleString()} matched`;
     $('ufResults').style.display = 'none';
     active = true;
   }
 
   // --- JSONPath filter ---
+  // --- Fast path for simple $.[*].key or $.key expressions ---
+  function tryFastJsonPath(expr, jsonData) {
+    // Match patterns like $.[*].key, $[*].key, $.key, $..key
+    const m = expr.match(/^\$\.?\[?\*?\]?\.(\w+)$/);
+    if (!m) return null;
+    const key = m[1];
+    if (Array.isArray(jsonData)) {
+      // $.[*].key on an array — scan directly
+      const matchedRows = new Set();
+      const matchedCols = new Set([key]);
+      for (let i = 0; i < jsonData.length; i++) {
+        const row = jsonData[i];
+        if (row && typeof row === 'object' && key in row) matchedRows.add(i);
+      }
+      return { matchCount: matchedRows.size, total: jsonData.length, matchedRows, matchedCols, key };
+    } else if (jsonData && typeof jsonData === 'object' && key in jsonData) {
+      return { matchCount: 1, total: 1, matchedRows: new Set([0]), matchedCols: new Set([key]), key };
+    }
+    return null;
+  }
+
   async function filterByJsonPath(expr) {
     const jsonData = getJsonData();
     if (!jsonData) { toast('Load JSON first'); return; }
+
+    // Try fast path first (no library needed)
+    const fast = tryFastJsonPath(expr, jsonData);
+    if (fast) {
+      $('treeFilterInfo').className = 'tree-filter-info' + (fast.matchCount === 0 ? ' uf-no-match' : '');
+      $('ufResults').style.display = 'none';
+      if (fast.matchCount === 0) {
+        $('treeFilterInfo').textContent = '0 matches';
+        active = false;
+        return;
+      }
+      // Apply to tree view (DOM lines)
+      if (!isTableView()) {
+        const view = $('jsonView');
+        if (view) {
+          const lines = view.getElementsByClassName('j-line');
+          for (let i = 0; i < lines.length; i++) {
+            const el = lines[i];
+            const dp = el.querySelector('[data-path]')?.getAttribute('data-path') || '';
+            // Match lines whose path contains the key
+            const keyPattern = '.' + fast.key;
+            if (dp.endsWith(keyPattern) || dp.includes(keyPattern + '.') || dp.includes(keyPattern + '[')) {
+              el.classList.remove('filter-hidden');
+              el.querySelectorAll('.j-str, .j-num, .j-bool, .j-null').forEach(vs => vs.classList.add('filter-match'));
+            } else {
+              el.classList.add('filter-hidden');
+            }
+          }
+        }
+      }
+      $('treeFilterInfo').textContent = `${fast.matchCount.toLocaleString()} / ${fast.total.toLocaleString()} matched`;
+      if (isTableView()) {
+        window.App.simpleTable.setHighlight(fast.matchedRows, fast.matchedCols);
+        $('treeFilterInfo').textContent = `${fast.matchCount.toLocaleString()} / ${fast.total.toLocaleString()} rows matched`;
+      }
+      active = true;
+      return;
+    }
+
+    // Full JSONPath (slower, needs library)
     try { await window.App.libLoader.require('jsonpath'); }
     catch { toast('Could not load the advanced filter feature'); return; }
 
@@ -395,7 +457,6 @@ window.App.universalFilter = (() => {
 
       if (result.length === 0) {
         $('treeFilterInfo').textContent = '0 matches';
-        // Reset view but preserve info text
         const view0 = $('jsonView');
         if (view0) {
           view0.querySelectorAll('.filter-hidden').forEach(el => el.classList.remove('filter-hidden'));
@@ -410,32 +471,35 @@ window.App.universalFilter = (() => {
       for (const r of result) {
         const ptr = typeof r.pointer === 'string' ? r.pointer : '';
         const converted = ptr.replace(/^\//, '').replace(/\/(\d+)/g, '[$1]').replace(/\//g, '.').replace(/^(\d+)/, '[$1]');
-        matchedPaths.add(converted); // '' = root
+        matchedPaths.add(converted);
       }
 
-      const view = $('jsonView');
-      if (!view) return;
-      const lines = view.getElementsByClassName('j-line');
-      let shown = 0, total = 0;
-      for (let i = 0; i < lines.length; i++) {
-        const el = lines[i];
-        const dp = el.querySelector('[data-path]')?.getAttribute('data-path') || '';
-        total++;
-        let match = matchedPaths.has(''); // root match → show all
-        for (const mp of matchedPaths) {
-          if (mp && (dp === mp || dp.startsWith(mp + '.') || dp.startsWith(mp + '['))) { match = true; break; }
-        }
-        if (match) {
-          el.classList.remove('filter-hidden');
-          if (matchedPaths.has(dp)) {
-            el.querySelectorAll('.j-str, .j-num, .j-bool, .j-null').forEach(vs => vs.classList.add('filter-match'));
+      if (!isTableView()) {
+        const view = $('jsonView');
+        if (view) {
+          const lines = view.getElementsByClassName('j-line');
+          for (let i = 0; i < lines.length; i++) {
+            const el = lines[i];
+            const dp = el.querySelector('[data-path]')?.getAttribute('data-path') || '';
+            let match = matchedPaths.has('');
+            for (const mp of matchedPaths) {
+              if (mp && (dp === mp || dp.startsWith(mp + '.') || dp.startsWith(mp + '['))) { match = true; break; }
+            }
+            if (match) {
+              el.classList.remove('filter-hidden');
+              if (matchedPaths.has(dp)) {
+                el.querySelectorAll('.j-str, .j-num, .j-bool, .j-null').forEach(vs => vs.classList.add('filter-match'));
+              }
+            } else {
+              el.classList.add('filter-hidden');
+            }
           }
-          shown++;
-        } else {
-          el.classList.add('filter-hidden');
         }
       }
-      $('treeFilterInfo').textContent = `${result.length} match${result.length !== 1 ? 'es' : ''} · ${shown}/${total} visible`;
+
+      // Data-level count for info
+      const dataTotal = Array.isArray(jsonData) ? jsonData.length : Object.keys(jsonData).length;
+      $('treeFilterInfo').textContent = `${result.length.toLocaleString()} / ${dataTotal.toLocaleString()} matched`;
       if (isTableView()) filterTableByJsonPath(result);
       active = true;
     } catch (err) {
@@ -489,7 +553,7 @@ window.App.universalFilter = (() => {
       if (matched) { el.classList.remove('filter-hidden'); shown++; }
       else el.classList.add('filter-hidden');
     }
-    $('treeFilterInfo').textContent = `${shown}/${total} matched`;
+    $('treeFilterInfo').textContent = `${shown.toLocaleString()} / ${total.toLocaleString()} matched`;
     $('ufResults').style.display = 'none';
     active = true;
   }
