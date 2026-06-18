@@ -1,14 +1,15 @@
 /**
- * Search — find/replace in JSON tree view
+ * Search — find/replace in JSON tree view (data-level).
+ * Searches raw JSON data via traverse.searchValues, not DOM elements.
+ * Results persist across chunked rendering via jsonView.setHighlight.
  */
 window.App = window.App || {};
 window.App.search = (() => {
   const { $ } = window.App.dom;
 
-  let searchMatches = [];
+  let searchPaths = [];   // ordered array of matched path strings
   let searchIndex = -1;
   let searchDebounce = 0;
-  let searchAbort = false;
 
   function getSearchParams() {
     const term = $('searchInput').value;
@@ -33,113 +34,93 @@ window.App.search = (() => {
   }
 
   function performSearchNow() {
-    searchAbort = true;
     clearHighlights();
-    const query = $('searchInput').value.trim().toLowerCase();
-    if (!query) { $('searchInfo').textContent = '0/0'; searchMatches = []; return; }
-    searchAbort = false;
-    const view = $('jsonView');
-    const lines = view.getElementsByClassName('j-line');
-    const len = lines.length;
+    const query = $('searchInput').value.trim();
+    if (!query) { $('searchInfo').textContent = '0/0'; searchPaths = []; return; }
 
-    if (len < 10000) {
-      for (let i = 0; i < len; i++) {
-        if (lines[i].textContent.toLowerCase().includes(query)) searchMatches.push(lines[i]);
-      }
-      for (let i = 0; i < searchMatches.length; i++) searchMatches[i].classList.add('search-match');
-      searchIndex = searchMatches.length > 0 ? 0 : -1;
-      updateInfo();
-      if (searchMatches.length > 0) {
-        searchMatches[0].classList.add('search-current');
-        scrollToMatch(searchMatches[0]);
-      }
-      return;
+    const jsonData = window.App._jsonDataRef;
+    if (!jsonData) { $('searchInfo').textContent = '0/0'; return; }
+
+    // Build regex for the search term
+    let regex;
+    if ($('searchRegex').checked) {
+      try { regex = new RegExp(query, 'i'); }
+      catch { window.App.dom.toast('Invalid pattern'); return; }
+    } else {
+      // Escape for literal match
+      const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      regex = new RegExp(escaped, 'i');
     }
 
-    // Cooperative search for large DOMs
-    let idx = 0;
-    const BATCH_TIME = 8;
-    function searchBatch() {
-      if (searchAbort) return;
-      const start = performance.now();
-      const batchMatches = [];
-      while (idx < len && (performance.now() - start) < BATCH_TIME) {
-        if (lines[idx].textContent.toLowerCase().includes(query)) {
-          searchMatches.push(lines[idx]);
-          batchMatches.push(lines[idx]);
-        }
-        idx++;
-      }
-      for (let i = 0; i < batchMatches.length; i++) batchMatches[i].classList.add('search-match');
-      updateInfo();
-      if (idx < len) {
-        requestAnimationFrame(searchBatch);
-      } else {
-        searchIndex = searchMatches.length > 0 ? 0 : -1;
-        updateInfo();
-        if (searchMatches.length > 0) {
-          searchMatches[0].classList.add('search-current');
-          scrollToMatch(searchMatches[0]);
-        }
-      }
+    // Data-level search — traverse entire JSON
+    const { matchedPaths } = window.App.traverse.searchValues(jsonData, regex);
+
+    searchPaths = [...matchedPaths];
+    searchIndex = searchPaths.length > 0 ? 0 : -1;
+
+    // Apply persistent highlight via json-view infrastructure
+    if (window.App.jsonView?.setHighlight) {
+      window.App.jsonView.setHighlight(matchedPaths);
     }
-    requestAnimationFrame(searchBatch);
+
+    updateInfo();
+    if (searchPaths.length > 0) navigateToCurrentMatch();
   }
 
   function performSearchExactKey(keyName) {
-    searchAbort = true;
     clearHighlights();
-    searchAbort = false;
-    const allKeys = $('jsonView').getElementsByClassName('j-key');
-    for (let i = 0; i < allKeys.length; i++) {
-      const kText = allKeys[i].textContent.replace(/^"|"$/g, '');
-      if (kText === keyName) {
-        const line = allKeys[i].closest('.j-line');
-        if (line) searchMatches.push(line);
-      }
+    const jsonData = window.App._jsonDataRef;
+    if (!jsonData) return;
+
+    // Data-level key search
+    const matchedPaths = window.App.traverse.searchKeys(jsonData, keyName);
+
+    searchPaths = [...matchedPaths];
+    searchIndex = searchPaths.length > 0 ? 0 : -1;
+
+    if (window.App.jsonView?.setHighlight) {
+      window.App.jsonView.setHighlight(matchedPaths);
     }
-    for (let i = 0; i < searchMatches.length; i++) searchMatches[i].classList.add('search-match');
-    searchIndex = searchMatches.length > 0 ? 0 : -1;
+
     updateInfo();
-    if (searchMatches.length > 0) {
-      searchMatches[0].classList.add('search-current');
-      scrollToMatch(searchMatches[0]);
-    }
+    if (searchPaths.length > 0) navigateToCurrentMatch();
   }
 
   function navigate(dir) {
-    if (searchMatches.length === 0) return;
-    searchMatches[searchIndex]?.classList.remove('search-current');
-    searchIndex = (searchIndex + dir + searchMatches.length) % searchMatches.length;
-    const match = searchMatches[searchIndex];
-    match.classList.add('search-current');
-    scrollToMatch(match);
+    if (searchPaths.length === 0) return;
+    searchIndex = (searchIndex + dir + searchPaths.length) % searchPaths.length;
+    navigateToCurrentMatch();
     updateInfo();
   }
 
-  function scrollToMatch(match) {
-    const { expandParents } = window.App.jsonView;
-    expandParents(match, $('jsonView'));
-    const container = $('jsonView');
-    match.offsetHeight; // force layout
-    const matchRect = match.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
-    const offsetTop = matchRect.top - containerRect.top + container.scrollTop;
-    container.scrollTo({ top: offsetTop - container.clientHeight / 2 + matchRect.height / 2, behavior: 'instant' });
+  function navigateToCurrentMatch() {
+    const path = searchPaths[searchIndex];
+    if (!path) return;
+    // Use jsonView.highlightPath to scroll to the element
+    if (window.App.jsonView?.highlightPath) {
+      window.App.jsonView.highlightPath(path);
+    }
   }
 
   function updateInfo() {
-    $('searchInfo').textContent = searchMatches.length > 0 ? `${searchIndex + 1}/${searchMatches.length}` : '0/0';
+    $('searchInfo').textContent = searchPaths.length > 0
+      ? `${searchIndex + 1}/${searchPaths.length.toLocaleString()}`
+      : '0/0';
   }
 
   function clearHighlights() {
-    for (let i = 0; i < searchMatches.length; i++) {
-      searchMatches[i].classList.remove('search-match', 'search-current');
+    searchPaths = [];
+    searchIndex = -1;
+    if (window.App.jsonView?.clearHighlight) {
+      window.App.jsonView.clearHighlight();
     }
-    searchMatches = [];
+    // Also clear the single-path highlight
+    if (window.App.jsonView?.highlightPath) {
+      window.App.jsonView.highlightPath(null);
+    }
   }
 
-  function getMatches() { return searchMatches; }
+  function getMatches() { return searchPaths; }
   function getIndex() { return searchIndex; }
 
   return {

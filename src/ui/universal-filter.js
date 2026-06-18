@@ -37,7 +37,7 @@ window.App.universalFilter = (() => {
   }
 
   function detectMode(val) {
-    if (val.startsWith('$')) return 'jsonpath';
+    if (val.startsWith('$') || val.startsWith('[')) return 'jsonpath';
     if (val.startsWith('/')) return 'regex';
     if (val.startsWith('=')) return 'js';
     return 'path';
@@ -368,8 +368,8 @@ window.App.universalFilter = (() => {
   // --- Path filter ---
   function filterByPath(pattern) {
     if (isTableView()) { resetTableFilter(); filterTableByPath(pattern); return; }
-    const view = $('jsonView');
-    if (!view) { resetDisplay(); return; }
+    const jsonData = getJsonData();
+    if (!jsonData) { resetDisplay(); return; }
     let regex;
     try {
       const escaped = pattern.toLowerCase().replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
@@ -381,15 +381,9 @@ window.App.universalFilter = (() => {
       window.App.jsonView.setHighlightByRegex(regex);
     }
 
-    // Count from data if available
-    const jsonData = getJsonData();
-    const dataTotal = Array.isArray(jsonData) ? jsonData.length : 0;
-    const lines = view.getElementsByClassName('j-line');
-    let shown = 0;
-    for (let i = 0; i < lines.length; i++) {
-      if (!lines[i].classList.contains('filter-hidden')) shown++;
-    }
-    $('treeFilterInfo').textContent = `${shown.toLocaleString()} / ${(dataTotal || shown).toLocaleString()} matched`;
+    // Data-level count — traverse all paths, count matches
+    const { matched, total } = window.App.traverse.countPathMatches(jsonData, regex);
+    $('treeFilterInfo').textContent = `${matched.toLocaleString()} / ${total.toLocaleString()} paths matched`;
     $('ufResults').style.display = 'none';
     active = true;
   }
@@ -403,8 +397,9 @@ window.App.universalFilter = (() => {
     catch { toast('Could not load the advanced filter feature'); return; }
 
     try {
-      // Normalize: remove redundant dot before bracket (JSONPath-Plus quirk: $.[*] recurses, $[*] does not)
-      const normalizedExpr = expr.replace(/\.\[/g, '[');
+      // Normalize: auto-prepend $ if missing; remove redundant dot before bracket (JSONPath-Plus quirk)
+      let normalizedExpr = expr.startsWith('[') ? '$' + expr : expr;
+      normalizedExpr = normalizedExpr.replace(/\.\[/g, '[');
       const result = JSONPath.JSONPath({ path: normalizedExpr, json: jsonData, resultType: 'pointer' });
       $('treeFilterInfo').className = 'tree-filter-info' + (result.length === 0 ? ' uf-no-match' : '');
       $('ufResults').style.display = 'none';
@@ -450,8 +445,8 @@ window.App.universalFilter = (() => {
   // --- Regex value filter ---
   function filterByRegex(raw) {
     if (isTableView()) { resetTableFilter(); filterTableByRegex(raw); return; }
-    const view = $('jsonView');
-    if (!view) return;
+    const jsonData = getJsonData();
+    if (!jsonData) { toast('Load JSON first'); return; }
     const m = raw.match(/^\/(.+)\/([gimsuy]*)$/);
     let regex;
     try {
@@ -462,35 +457,31 @@ window.App.universalFilter = (() => {
       return;
     }
 
-    view.querySelectorAll('.filter-match').forEach(el => el.classList.remove('filter-match'));
+    // Data-level search — traverses entire JSON, not DOM
+    const { matchedPaths, total } = window.App.traverse.searchValues(jsonData, regex);
 
-    const lines = view.getElementsByClassName('j-line');
-    let shown = 0, total = 0;
-    for (let i = 0; i < lines.length; i++) {
-      const el = lines[i];
-      total++;
-      let matched = false;
-
-      // Match keys
-      const keySpans = el.querySelectorAll('.j-key');
-      for (const ks of keySpans) {
-        if (regex.test(ks.textContent.replace(/"|:/g, '').trim())) {
-          ks.classList.add('filter-match');
-          matched = true;
-        }
-      }
-      // Match values
-      const valSpans = el.querySelectorAll('.j-str, .j-num, .j-bool, .j-null');
-      for (const vs of valSpans) {
-        if (regex.test(vs.textContent.replace(/^"|"$/g, ''))) {
-          vs.classList.add('filter-match');
-          matched = true;
-        }
-      }
-      if (matched) { el.classList.remove('filter-hidden'); shown++; }
-      else el.classList.add('filter-hidden');
+    $('treeFilterInfo').className = 'tree-filter-info' + (matchedPaths.size === 0 ? ' uf-no-match' : '');
+    if (matchedPaths.size === 0) {
+      $('treeFilterInfo').textContent = '0 matches';
+      if (window.App.jsonView?.clearHighlight) window.App.jsonView.clearHighlight();
+      active = false;
+      return;
     }
-    $('treeFilterInfo').textContent = `${shown.toLocaleString()} / ${total.toLocaleString()} matched`;
+
+    // Persistent chunk-safe highlight
+    window.App.jsonView.setHighlight(matchedPaths);
+
+    const dataTotal = Array.isArray(jsonData) ? jsonData.length : Object.keys(jsonData).length;
+    // Count unique top-level records that contain a match
+    const topKeys = new Set();
+    for (const p of matchedPaths) {
+      const bracket = p.indexOf(']');
+      const dot = p.indexOf('.');
+      if (p.startsWith('[') && bracket > 0) topKeys.add(p.slice(0, bracket + 1));
+      else if (dot > 0) topKeys.add(p.slice(0, dot));
+      else topKeys.add(p);
+    }
+    $('treeFilterInfo').textContent = `${topKeys.size.toLocaleString()} / ${dataTotal.toLocaleString()} rows matched (${matchedPaths.size.toLocaleString()} nodes)`;
     $('ufResults').style.display = 'none';
     active = true;
   }

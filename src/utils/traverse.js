@@ -166,5 +166,113 @@ window.App.traverse = (() => {
     return null;
   }
 
-  return { walk, collectPaths, findArrays, findAllArrays, findArrayOfObjects };
+  /**
+   * Search all keys and values in a JSON structure against a regex.
+   * Returns a Set of data-path strings for matching leaves/keys.
+   * @param {*} obj - Root JSON value
+   * @param {RegExp} regex - Pattern to test against keys and values
+   * @returns {{ matchedPaths: Set<string>, total: number }}
+   */
+  function searchValues(obj, regex) {
+    const matchedPaths = new Set();
+    let total = 0;
+    const stack = [{ val: obj, path: '', depth: 0 }];
+    while (stack.length > 0) {
+      const { val, path, depth } = stack.pop();
+      if (depth > 20) continue;
+      if (val && typeof val === 'object') {
+        if (Array.isArray(val)) {
+          for (let i = val.length - 1; i >= 0; i--) {
+            const cp = path ? `${path}[${i}]` : `[${i}]`;
+            stack.push({ val: val[i], path: cp, depth: depth + 1 });
+          }
+        } else {
+          const entries = Object.entries(val);
+          for (let i = entries.length - 1; i >= 0; i--) {
+            const [k, v] = entries[i];
+            const cp = path ? `${path}.${k}` : k;
+            // Test key name
+            if (regex.test(k)) matchedPaths.add(cp);
+            stack.push({ val: v, path: cp, depth: depth + 1 });
+          }
+        }
+      } else {
+        // Leaf value — test string representation
+        if (path) {
+          total++;
+          const str = val === null ? 'null' : String(val);
+          if (regex.test(str)) matchedPaths.add(path);
+        }
+      }
+    }
+    return { matchedPaths, total };
+  }
+
+  /**
+   * Search for all paths where the key name matches exactly.
+   * @param {*} obj - Root JSON value
+   * @param {string} keyName - Exact key name to find
+   * @returns {Set<string>} Set of matching data-path strings
+   */
+  function searchKeys(obj, keyName) {
+    const matched = new Set();
+    const stack = [{ val: obj, path: '', depth: 0 }];
+    while (stack.length > 0) {
+      const { val, path, depth } = stack.pop();
+      if (depth > 20) continue;
+      if (val && typeof val === 'object') {
+        if (Array.isArray(val)) {
+          for (let i = val.length - 1; i >= 0; i--) {
+            const cp = path ? `${path}[${i}]` : `[${i}]`;
+            stack.push({ val: val[i], path: cp, depth: depth + 1 });
+          }
+        } else {
+          const entries = Object.entries(val);
+          for (let i = entries.length - 1; i >= 0; i--) {
+            const [k, v] = entries[i];
+            const cp = path ? `${path}.${k}` : k;
+            if (k === keyName) matched.add(cp);
+            stack.push({ val: v, path: cp, depth: depth + 1 });
+          }
+        }
+      }
+    }
+    return matched;
+  }
+
+  /**
+   * Count paths matching a regex pattern (for path-mode filter counting).
+   * @param {*} obj - Root JSON value
+   * @param {RegExp} regex - Pattern to test against paths
+   * @returns {{ matched: number, total: number }}
+   */
+  function countPathMatches(obj, regex) {
+    let matched = 0, total = 0;
+    const stack = [{ val: obj, path: '', depth: 0 }];
+    while (stack.length > 0) {
+      const { val, path, depth } = stack.pop();
+      if (depth > 20) continue;
+      if (val && typeof val === 'object') {
+        if (Array.isArray(val)) {
+          for (let i = val.length - 1; i >= 0; i--) {
+            const cp = path ? `${path}[${i}]` : `[${i}]`;
+            stack.push({ val: val[i], path: cp, depth: depth + 1 });
+          }
+        } else {
+          const entries = Object.entries(val);
+          for (let i = entries.length - 1; i >= 0; i--) {
+            const [k, v] = entries[i];
+            const cp = path ? `${path}.${k}` : k;
+            stack.push({ val: v, path: cp, depth: depth + 1 });
+          }
+        }
+      } else if (path) {
+        total++;
+        if (regex.test(path)) matched++;
+      }
+    }
+    return { matched, total };
+  }
+
+  return { walk, collectPaths, findArrays, findAllArrays, findArrayOfObjects, searchValues, searchKeys, countPathMatches };
 })();

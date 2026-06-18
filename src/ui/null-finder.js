@@ -1,5 +1,6 @@
 /**
  * Null/Empty value finder — highlights and navigates null, empty string, empty array/object values.
+ * Uses data-level path computation + jsonView.setHighlight for chunk-safe display.
  */
 window.App = window.App || {};
 window.App.nullFinder = (() => {
@@ -15,10 +16,13 @@ window.App.nullFinder = (() => {
     matches = [];
     index = -1;
     $('btnNullFinder').classList.remove('active');
-    document.querySelectorAll('.j-null-highlight').forEach(el => el.classList.remove('j-null-highlight'));
+    // Clear highlight via data-level API
+    if (window.App.jsonView?.clearHighlight) {
+      window.App.jsonView.clearHighlight();
+    }
   }
 
-  function toggle(jsonData, expandParents) {
+  function toggle(jsonData) {
     if (!jsonData) { toast('Load JSON first'); return; }
     if (active) { clear(); return; }
     matches = findNullPaths(jsonData);
@@ -27,17 +31,35 @@ window.App.nullFinder = (() => {
     index = 0;
     $('btnNullFinder').classList.add('active');
     toast(`Found ${matches.length} null or empty value${matches.length > 1 ? 's' : ''}. Click again to dismiss.`);
-    for (const p of matches) {
-      const el = document.querySelector(`[data-path="${CSS.escape(p)}"]`);
-      if (el) el.classList.add('j-null-highlight');
+
+    // Use setHighlight for persistent chunk-safe display
+    if (window.App.jsonView?.setHighlight) {
+      window.App.jsonView.setHighlight(new Set(matches));
     }
-    if (matches[0]) {
-      const el = document.querySelector(`[data-path="${CSS.escape(matches[0])}"]`);
-      if (el) { if (expandParents) expandParents(el); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+
+    // Navigate to first match
+    if (matches[0] && window.App.jsonView?.highlightPath) {
+      window.App.jsonView.highlightPath(matches[0]);
+    }
+  }
+
+  function next() {
+    if (!active || matches.length === 0) return;
+    index = (index + 1) % matches.length;
+    if (window.App.jsonView?.highlightPath) {
+      window.App.jsonView.highlightPath(matches[index]);
+    }
+  }
+
+  function prev() {
+    if (!active || matches.length === 0) return;
+    index = (index - 1 + matches.length) % matches.length;
+    if (window.App.jsonView?.highlightPath) {
+      window.App.jsonView.highlightPath(matches[index]);
     }
   }
 
   function isActive() { return active; }
 
-  return { toggle, clear, isActive };
+  return { toggle, clear, isActive, next, prev };
 })();

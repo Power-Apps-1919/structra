@@ -114,7 +114,7 @@ window.App.toolbarActions = (() => {
     // --- Null Finder ---
     $('btnNullFinder').addEventListener('click', () => {
       const { jsonData } = state();
-      window.App.nullFinder.toggle(jsonData, window.App.jsonView.expandParents);
+      window.App.nullFinder.toggle(jsonData);
     });
 
     // --- Size Heatmap ---
