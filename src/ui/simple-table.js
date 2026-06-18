@@ -142,25 +142,30 @@ window.App.simpleTable = (() => {
     });
   }
 
-  /* ---- Virtual-scroll constants ---- */
-  const ROW_HEIGHT = 28; // px per row (matches CSS: 10px font + 4px*2 padding + 1px border ≈ 28)
-  const BUFFER = 20;     // extra rows above/below viewport
+  /* ---- Chunk + Recycle constants (mirrors json-view pattern) ---- */
+  const CHUNK_SIZE = 200;          // rows per chunk
+  const OFFSCREEN_MARGIN = 2000;   // px before recycling offscreen chunks
 
-  let _cachedRows = null;    // cached sorted+filtered data
-  let _scrollEl = null;      // scroll container ref
-  let _tbodyEl = null;       // tbody ref
-  let _lastStart = -1;       // last rendered window start
-  let _lastEnd = -1;         // last rendered window end
-  let _cols = [];             // current visible columns (cached for renderWindow)
+  let _cachedRows = null;          // sorted+filtered data
+  let _cols = [];                  // visible columns cache
+  let _loadObserver = null;        // IntersectionObserver for loading next chunk
+  let _recycleObserver = null;     // IntersectionObserver for memory recycling
+  let _scrollEl = null;
+  let _tbodyEl = null;
+
+  function cleanupObservers() {
+    if (_loadObserver) { _loadObserver.disconnect(); _loadObserver = null; }
+    if (_recycleObserver) { _recycleObserver.disconnect(); _recycleObserver = null; }
+  }
 
   function buildTable() {
+    cleanupObservers();
     const container = $('simpleTableView');
     _cols = visibleCols();
     _cachedRows = getSortedData();
     const rows = _cachedRows;
 
     let html = '<div class="st-toolbar">';
-    // Array selector (only when multiple arrays exist)
     if (availableArrays.length > 1) {
       html += '<select class="st-array-select" id="stArraySelect">';
       for (const a of availableArrays) {
@@ -189,62 +194,48 @@ window.App.simpleTable = (() => {
       const dateIcon = dateColumns.has(col) ? ' <span class="st-date-icon">📅</span>' : '';
       html += `<th data-col="${esc(col)}">${esc(col)}${sortIcon}${filterIcon}${dateIcon}</th>`;
     }
-    html += '</tr></thead><tbody id="stBody"></tbody></table>';
-    html += '</div>';
+    html += '</tr></thead></table></div>';
     container.innerHTML = html;
 
     _scrollEl = container.querySelector('#stScroll');
-    _tbodyEl = container.querySelector('#stBody');
-    _lastStart = -1;
-    _lastEnd = -1;
+    _tbodyEl = container.querySelector('.st-table'); // table element, chunks are appended as <tbody>
 
-    // Initial render of visible window
-    renderWindow();
+    // Setup observers
+    setupObservers();
 
-    // Scroll handler
-    _scrollEl.addEventListener('scroll', onScroll, { passive: true });
+    // Render first chunk + sentinel
+    const end = Math.min(CHUNK_SIZE, rows.length);
+    const chunk = buildChunk(0, end);
+    _tbodyEl.appendChild(chunk);
+    if (rows.length > CHUNK_SIZE) observeRecycle(chunk);
+
+    if (end < rows.length) {
+      const sentinel = makeSentinel(end, rows.length);
+      _tbodyEl.appendChild(sentinel);
+      _loadObserver.observe(sentinel);
+    }
 
     // Bind toolbar/header events
     bindEvents(container);
   }
 
-  let _scrollRAF = 0;
-  function onScroll() {
-    if (_scrollRAF) return;
-    _scrollRAF = requestAnimationFrame(() => {
-      _scrollRAF = 0;
-      renderWindow();
-    });
+  /* Build a <tbody>-fragment (chunk wrapper) for rows [start..end) */
+  function buildChunk(start, end) {
+    const chunk = document.createElement('tbody');
+    chunk.className = 'st-chunk';
+    chunk.dataset.start = start;
+    chunk.dataset.end = end;
+    fillChunk(chunk, start, end);
+    return chunk;
   }
 
-  function renderWindow() {
-    if (!_scrollEl || !_tbodyEl || !_cachedRows) return;
-    const scrollTop = _scrollEl.scrollTop;
-    const viewH = _scrollEl.clientHeight;
-    const totalRows = _cachedRows.length;
-
-    let start = Math.floor(scrollTop / ROW_HEIGHT) - BUFFER;
-    let end = Math.ceil((scrollTop + viewH) / ROW_HEIGHT) + BUFFER;
-    if (start < 0) start = 0;
-    if (end > totalRows) end = totalRows;
-
-    // Skip re-render if window unchanged
-    if (start === _lastStart && end === _lastEnd) return;
-    _lastStart = start;
-    _lastEnd = end;
-
+  /* Populate a chunk element with <tr> rows */
+  function fillChunk(chunk, start, end) {
     const cols = _cols;
-    const colCount = cols.length + 1; // +1 for index column
+    const rows = _cachedRows;
     const parts = [];
-
-    // Top spacer row
-    const padTop = start * ROW_HEIGHT;
-    if (padTop > 0) {
-      parts.push(`<tr class="st-spacer"><td colspan="${colCount}" style="height:${padTop}px"></td></tr>`);
-    }
-
     for (let i = start; i < end; i++) {
-      const row = _cachedRows[i];
+      const row = rows[i];
       parts.push(`<tr data-idx="${i}"><td class="st-td-idx">${i}</td>`);
       for (const col of cols) {
         const val = row[col];
@@ -264,25 +255,107 @@ window.App.simpleTable = (() => {
       }
       parts.push('</tr>');
     }
-
-    // Bottom spacer row
-    const padBottom = (totalRows - end) * ROW_HEIGHT;
-    if (padBottom > 0) {
-      parts.push(`<tr class="st-spacer"><td colspan="${colCount}" style="height:${padBottom}px"></td></tr>`);
-    }
-
-    _tbodyEl.innerHTML = parts.join('');
-
-    // Bind row click on visible rows (event delegation)
-    _tbodyEl.querySelectorAll('tr[data-idx]').forEach(tr => {
+    chunk.innerHTML = parts.join('');
+    // Bind row clicks
+    chunk.querySelectorAll('tr[data-idx]').forEach(tr => {
       tr.addEventListener('click', () => {
         const idx = tr.dataset.idx;
         const path = basePath === '(root)' ? `[${idx}]` : `${basePath}[${idx}]`;
         if (onSelectCb) onSelectCb(path);
-        _tbodyEl.querySelectorAll('tr.st-selected').forEach(r => r.classList.remove('st-selected'));
+        document.querySelectorAll('.st-chunk tr.st-selected').forEach(r => r.classList.remove('st-selected'));
         tr.classList.add('st-selected');
       });
     });
+  }
+
+  /* Create a sentinel element that triggers loading the next chunk */
+  function makeSentinel(start, total) {
+    const el = document.createElement('tr');
+    el.className = 'st-sentinel';
+    el.dataset.start = start;
+    el.dataset.total = total;
+    const remaining = total - start;
+    el.innerHTML = `<td colspan="${_cols.length + 1}" class="st-sentinel-td">Loading... ${remaining.toLocaleString()} more rows</td>`;
+    // Wrap in a tbody so it's a valid table child
+    const wrapper = document.createElement('tbody');
+    wrapper.className = 'st-sentinel-wrap';
+    wrapper.appendChild(el);
+    return wrapper;
+  }
+
+  /* Setup IntersectionObservers for lazy-load and memory recycling */
+  function setupObservers() {
+    // Load observer: triggers 600px before sentinel is visible
+    _loadObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const sentinel = entry.target;
+        _loadObserver.unobserve(sentinel);
+        loadNextChunk(sentinel);
+      }
+    }, { root: _scrollEl, rootMargin: '600px' });
+
+    // Recycle observer: recycles chunks that are >OFFSCREEN_MARGIN away
+    _recycleObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const chunk = entry.target;
+        if (entry.isIntersecting) {
+          // Scrolled back into range → rehydrate
+          if (chunk.dataset.recycled === '1') rehydrateChunk(chunk);
+        } else {
+          // Scrolled far away → recycle
+          if (chunk.dataset.recycled !== '1') recycleChunk(chunk);
+        }
+      }
+    }, { root: _scrollEl, rootMargin: OFFSCREEN_MARGIN + 'px' });
+  }
+
+  /* Load the next chunk when the sentinel is reached */
+  function loadNextChunk(sentinelWrap) {
+    const sentinel = sentinelWrap.querySelector('.st-sentinel');
+    const start = parseInt(sentinel.dataset.start, 10);
+    const total = parseInt(sentinel.dataset.total, 10);
+    const end = Math.min(start + CHUNK_SIZE, total);
+
+    const chunk = buildChunk(start, end);
+    sentinelWrap.before(chunk);
+    observeRecycle(chunk);
+
+    if (end < total) {
+      // Update sentinel for next batch
+      sentinel.dataset.start = end;
+      const remaining = total - end;
+      sentinel.querySelector('.st-sentinel-td').textContent = `Loading... ${remaining.toLocaleString()} more rows`;
+      _loadObserver.observe(sentinelWrap);
+    } else {
+      // All rows loaded, remove sentinel
+      sentinelWrap.remove();
+    }
+  }
+
+  /* Register a chunk with the recycle observer */
+  function observeRecycle(chunk) {
+    if (_cachedRows.length > CHUNK_SIZE) {
+      _recycleObserver.observe(chunk);
+    }
+  }
+
+  /* Recycle: clear innerHTML, preserve height as placeholder */
+  function recycleChunk(chunk) {
+    const h = chunk.offsetHeight;
+    if (h === 0) return; // collapsed/hidden, skip
+    chunk.dataset.savedHeight = h;
+    chunk.innerHTML = `<tr><td colspan="${_cols.length + 1}" style="height:${h}px;padding:0;border:none"></td></tr>`;
+    chunk.dataset.recycled = '1';
+  }
+
+  /* Rehydrate: re-render from cached data */
+  function rehydrateChunk(chunk) {
+    const start = parseInt(chunk.dataset.start, 10);
+    const end = parseInt(chunk.dataset.end, 10);
+    fillChunk(chunk, start, end);
+    delete chunk.dataset.recycled;
+    delete chunk.dataset.savedHeight;
   }
 
   function bindEvents(container) {
@@ -331,7 +404,7 @@ window.App.simpleTable = (() => {
       });
     });
 
-    // Row click is handled by renderWindow() virtual scroll
+    // Row click is handled by chunk fillChunk()
 
     // Show All button
     const showAllBtn = container.querySelector('#stShowAll');
