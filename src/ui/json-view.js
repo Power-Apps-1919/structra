@@ -197,6 +197,10 @@ window.App.jsonView = (() => {
     // Insert chunk before sentinel
     sentinel.parentNode.insertBefore(chunk, sentinel);
 
+    // Check if filter hid all lines in this chunk — prevent cascade loading
+    const filterActive = !!(_filterMatchedPaths || _filterPathRegex);
+    const hasVisibleLines = !filterActive || chunk.querySelector('.j-line:not(.filter-hidden):not(.j-lazy-sentinel)');
+
     // Update or remove sentinel
     if (end < total) {
       sentinel.dataset.start = end;
@@ -204,7 +208,8 @@ window.App.jsonView = (() => {
       const remaining = total - end;
       const pad = '  '.repeat(indent + 1);
       sentinel.innerHTML = `<span class="j-muted">${pad}// ${remaining} more items below...</span>`;
-      loadObserver.observe(sentinel);
+      // Only re-observe if chunk had visible content (prevents filter cascade)
+      if (hasVisibleLines) loadObserver.observe(sentinel);
     } else {
       sentinel.remove();
     }
@@ -682,6 +687,12 @@ window.App.jsonView = (() => {
   /** Apply current filter state to lines inside a container (chunk or full view) */
   function applyFilterToContainer(container) {
     if (!_filterMatchedPaths && !_filterPathRegex) return;
+
+    // Detach container from DOM to avoid layout thrashing during bulk class changes
+    const parent = container.parentNode;
+    const next = container.nextSibling;
+    if (parent) parent.removeChild(container);
+
     const lines = container.getElementsByClassName('j-line');
     for (let i = 0; i < lines.length; i++) {
       const el = lines[i];
@@ -709,6 +720,12 @@ window.App.jsonView = (() => {
         }
       }
     }
+
+    // Re-attach container — single reflow
+    if (parent) {
+      if (next) parent.insertBefore(container, next);
+      else parent.appendChild(container);
+    }
   }
 
   /** Check if dp or any ancestor is in _filterMatchedPaths — O(depth) not O(matchedPaths) */
@@ -732,6 +749,8 @@ window.App.jsonView = (() => {
   function setHighlight(matchedPaths) {
     _filterMatchedPaths = matchedPaths;
     _filterPathRegex = null;
+    // Disconnect load observer to prevent cascade (filter hides lines → sentinel in viewport → load → repeat)
+    if (loadObserver) loadObserver.disconnect();
     const view = $('jsonView');
     if (view) applyFilterToContainer(view);
   }
@@ -740,6 +759,7 @@ window.App.jsonView = (() => {
   function setHighlightByRegex(regex) {
     _filterPathRegex = regex;
     _filterMatchedPaths = null;
+    if (loadObserver) loadObserver.disconnect();
     const view = $('jsonView');
     if (view) applyFilterToContainer(view);
   }
@@ -750,6 +770,11 @@ window.App.jsonView = (() => {
     _filterPathRegex = null;
     const view = $('jsonView');
     if (view) {
+      // Detach to avoid layout thrashing during bulk class removal
+      const parent = view.parentNode;
+      const next = view.nextSibling;
+      if (parent) parent.removeChild(view);
+
       view.querySelectorAll('.filter-hidden').forEach(el => el.classList.remove('filter-hidden'));
       view.querySelectorAll('.filter-match').forEach(el => el.classList.remove('filter-match'));
       // Restore sentinel visibility
@@ -758,6 +783,15 @@ window.App.jsonView = (() => {
         s.style.height = '';
         s.style.overflow = '';
       });
+
+      if (parent) {
+        if (next) parent.insertBefore(view, next);
+        else parent.appendChild(view);
+      }
+      // Re-observe sentinels now that filter is cleared
+      if (loadObserver) {
+        view.querySelectorAll('.j-lazy-sentinel').forEach(s => loadObserver.observe(s));
+      }
     }
   }
 
