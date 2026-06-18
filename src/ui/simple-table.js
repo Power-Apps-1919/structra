@@ -651,13 +651,13 @@ window.App.simpleTable = (() => {
     _highlightRows = matchedRowIndices; // Set<number> or null
     _highlightCols = matchedColNames;   // Set<string> or null
     // Rebuild table since filter changes the dataset
-    buildTable();
+    if (currentData) buildTable();
   }
 
   function clearHighlight() {
     _highlightRows = null;
     _highlightCols = null;
-    buildTable();
+    if (currentData) buildTable();
   }
 
   return { render, setArrays, setHighlight, clearHighlight, getData: () => currentData, getColumns: () => columnOrder.filter(c => !hiddenCols.has(c)), isVisible: () => $('simpleTableView')?.classList.contains('show') };
