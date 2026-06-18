@@ -217,87 +217,6 @@ window.App.universalFilter = (() => {
     window.App.simpleTable?.clearHighlight?.();
   }
 
-  function filterTableByPath(pattern) {
-    const cols = getTableColumns();
-    const data = getTableData();
-    if (!cols.length || !data.length) { resetDisplay(); return; }
-
-    let regex;
-    try {
-      const escaped = pattern.toLowerCase().replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
-      regex = new RegExp(escaped, 'i');
-    } catch { resetDisplay(); return; }
-
-    // Match column names
-    const matchedCols = new Set();
-    cols.forEach(col => { if (regex.test(col)) matchedCols.add(col); });
-
-    const matchedRows = new Set();
-    if (matchedCols.size === 0) {
-      // No columns match — search cell values
-      for (let i = 0; i < data.length; i++) {
-        const row = data[i];
-        for (const col of cols) {
-          const val = row[col];
-          if (val != null && regex.test(String(val))) { matchedRows.add(i); break; }
-        }
-      }
-      window.App.simpleTable.setHighlight(matchedRows, null);
-      $('treeFilterInfo').textContent = `${matchedRows.size.toLocaleString()} / ${data.length.toLocaleString()} rows matched`;
-    } else {
-      // Highlight matching columns, show rows with values in those columns
-      for (let i = 0; i < data.length; i++) {
-        const row = data[i];
-        for (const col of matchedCols) {
-          const v = row[col];
-          if (v != null && v !== '' && String(v) !== 'null') { matchedRows.add(i); break; }
-        }
-      }
-      window.App.simpleTable.setHighlight(matchedRows, matchedCols);
-      $('treeFilterInfo').textContent = `${matchedCols.size} col${matchedCols.size > 1 ? 's' : ''} · ${matchedRows.size.toLocaleString()} / ${data.length.toLocaleString()} rows matched`;
-    }
-    $('ufResults').style.display = 'none';
-    active = true;
-  }
-
-  function filterTableByRegex(raw) {
-    const cols = getTableColumns();
-    const data = getTableData();
-    if (!cols.length) return;
-
-    const m = raw.match(/^\/(.+)\/([gimsuy]*)$/);
-    let regex;
-    try {
-      regex = m ? new RegExp(m[1], m[2] || '') : new RegExp(raw, 'i');
-    } catch {
-      $('treeFilterInfo').textContent = 'Invalid pattern';
-      $('treeFilterInfo').className = 'tree-filter-info uf-no-match';
-      return;
-    }
-
-    // Match column names
-    const matchedCols = new Set();
-    cols.forEach(col => { if (regex.test(col)) matchedCols.add(col); });
-
-    // Match cell values
-    const matchedRows = new Set();
-    for (let i = 0; i < data.length; i++) {
-      const row = data[i];
-      let hit = false;
-      for (const col of cols) {
-        const val = row[col];
-        if (val != null && regex.test(String(val))) { hit = true; break; }
-      }
-      if (!hit && matchedCols.size > 0) hit = true; // column name matched
-      if (hit) matchedRows.add(i);
-    }
-
-    window.App.simpleTable.setHighlight(matchedRows, matchedCols.size > 0 ? matchedCols : null);
-    $('treeFilterInfo').textContent = `${matchedRows.size.toLocaleString()} / ${data.length.toLocaleString()} rows matched`;
-    $('ufResults').style.display = 'none';
-    active = true;
-  }
-
   function filterTableByJsonPath(result) {
     const data = getTableData();
     if (!data.length) return;
@@ -317,8 +236,7 @@ window.App.universalFilter = (() => {
       }
     }
 
-    window.App.simpleTable.setHighlight(matchedRows, matchedCols.size > 0 ? matchedCols : null);
-    $('treeFilterInfo').textContent = `${matchedRows.size.toLocaleString()} / ${data.length.toLocaleString()} rows matched`;
+    window.App.simpleTable?.setHighlight?.(matchedRows, matchedCols.size > 0 ? matchedCols : null);
     active = true;
   }
 
@@ -367,7 +285,6 @@ window.App.universalFilter = (() => {
 
   // --- Path filter ---
   function filterByPath(pattern) {
-    if (isTableView()) { resetTableFilter(); filterTableByPath(pattern); return; }
     const jsonData = getJsonData();
     if (!jsonData) { resetDisplay(); return; }
     let regex;
@@ -376,9 +293,36 @@ window.App.universalFilter = (() => {
       regex = new RegExp(escaped, 'i');
     } catch { resetDisplay(); return; }
 
-    // Store filter at data level so chunks apply it on load/rehydrate
+    // Apply to tree — stores regex for chunk-safe highlighting
     if (window.App.jsonView?.setHighlightByRegex) {
       window.App.jsonView.setHighlightByRegex(regex);
+    }
+
+    // Apply to table — match columns/values
+    const cols = getTableColumns();
+    const data = getTableData();
+    if (cols.length && data.length) {
+      const matchedCols = new Set();
+      cols.forEach(col => { if (regex.test(col)) matchedCols.add(col); });
+      const matchedRows = new Set();
+      if (matchedCols.size === 0) {
+        for (let i = 0; i < data.length; i++) {
+          const row = data[i];
+          for (const col of cols) {
+            const val = row[col];
+            if (val != null && regex.test(String(val))) { matchedRows.add(i); break; }
+          }
+        }
+      } else {
+        for (let i = 0; i < data.length; i++) {
+          const row = data[i];
+          for (const col of matchedCols) {
+            const v = row[col];
+            if (v != null && v !== '' && String(v) !== 'null') { matchedRows.add(i); break; }
+          }
+        }
+      }
+      window.App.simpleTable?.setHighlight?.(matchedRows, matchedCols.size > 0 ? matchedCols : null);
     }
 
     // Data-level count — traverse all paths, count matches
@@ -418,10 +362,6 @@ window.App.universalFilter = (() => {
         matchedPaths.add(converted);
       }
 
-      if (!isTableView()) {
-        window.App.jsonView.setHighlight(matchedPaths);
-      }
-
       // Data-level count: unique top-level records that contain a match
       const dataTotal = Array.isArray(jsonData) ? jsonData.length : Object.keys(jsonData).length;
       const topKeys = new Set();
@@ -432,7 +372,10 @@ window.App.universalFilter = (() => {
       let infoText = `${topKeys.size.toLocaleString()} / ${dataTotal.toLocaleString()} rows matched`;
       if (result.length !== topKeys.size) infoText += ` (${result.length.toLocaleString()} nodes)`;
       $('treeFilterInfo').textContent = infoText;
-      if (isTableView()) filterTableByJsonPath(result);
+
+      // Apply to BOTH views so filter persists across view switches
+      window.App.jsonView.setHighlight(matchedPaths);
+      filterTableByJsonPath(result);
       active = true;
     } catch (err) {
       $('treeFilterInfo').textContent = 'Error';
@@ -444,7 +387,6 @@ window.App.universalFilter = (() => {
 
   // --- Regex value filter ---
   function filterByRegex(raw) {
-    if (isTableView()) { resetTableFilter(); filterTableByRegex(raw); return; }
     const jsonData = getJsonData();
     if (!jsonData) { toast('Load JSON first'); return; }
     const m = raw.match(/^\/(.+)\/([gimsuy]*)$/);
@@ -464,12 +406,33 @@ window.App.universalFilter = (() => {
     if (matchedPaths.size === 0) {
       $('treeFilterInfo').textContent = '0 matches';
       if (window.App.jsonView?.clearHighlight) window.App.jsonView.clearHighlight();
+      resetTableFilter();
       active = false;
       return;
     }
 
-    // Persistent chunk-safe highlight
+    // Apply to BOTH views so filter persists across view switches
     window.App.jsonView.setHighlight(matchedPaths);
+
+    // Derive matched row indices for table view
+    const matchedRows = new Set();
+    if (Array.isArray(jsonData)) {
+      for (const p of matchedPaths) {
+        const bracket = p.indexOf(']');
+        if (p.startsWith('[') && bracket > 0) {
+          matchedRows.add(parseInt(p.slice(1, bracket), 10));
+        }
+      }
+    }
+    // Also match column names for table highlight
+    const cols = getTableColumns();
+    const matchedCols = new Set();
+    cols.forEach(col => { if (regex.test(col)) matchedCols.add(col); });
+    if (matchedCols.size > 0) {
+      // If column name matches, include all rows
+      for (let i = 0; i < (getTableData()?.length || 0); i++) matchedRows.add(i);
+    }
+    window.App.simpleTable?.setHighlight?.(matchedRows, matchedCols.size > 0 ? matchedCols : null);
 
     const dataTotal = Array.isArray(jsonData) ? jsonData.length : Object.keys(jsonData).length;
     // Count unique top-level records that contain a match
