@@ -7,7 +7,7 @@
  */
 window.App = window.App || {};
 window.App.jsonView = (() => {
-  const { $, esc, toast } = window.App.dom;
+  const { $, esc, toast, showLoading, hideLoading } = window.App.dom;
   let lineCounter = 0;
   let fileLine = 0;             // Tracks actual file line number
   const CHUNK_SIZE = 100;        // Items per chunk
@@ -21,11 +21,15 @@ window.App.jsonView = (() => {
   // --- Data-level filter state (survives chunk recycle/rehydrate) ---
   let _filterMatchedPaths = null;   // Set<string> of matched data-paths, or null (no filter)
   let _filterPathRegex = null;      // RegExp for path-based filter, or null
+  let _filterScrollHandler = null;  // Scroll-based chunk loader when filter is active
 
   function render(jsonData, onPathSelect, onContextMenu) {
     lineCounter = 0;
     fileLine = 0;
     chunkId = 0;
+    _filterMatchedPaths = null;
+    _filterPathRegex = null;
+    _removeFilterScrollLoader($('jsonView'));
     onPathSelectCb = onPathSelect;
     onContextMenuCb = onContextMenu;
     cleanup();
@@ -199,7 +203,6 @@ window.App.jsonView = (() => {
 
     // Check if filter hid all lines in this chunk — prevent cascade loading
     const filterActive = !!(_filterMatchedPaths || _filterPathRegex);
-    const hasVisibleLines = !filterActive || chunk.querySelector('.j-line:not(.filter-hidden):not(.j-lazy-sentinel)');
 
     // Update or remove sentinel
     if (end < total) {
@@ -208,8 +211,8 @@ window.App.jsonView = (() => {
       const remaining = total - end;
       const pad = '  '.repeat(indent + 1);
       sentinel.innerHTML = `<span class="j-muted">${pad}// ${remaining} more items below...</span>`;
-      // Only re-observe if chunk had visible content (prevents filter cascade)
-      if (hasVisibleLines) loadObserver.observe(sentinel);
+      // When filter active, scroll handler manages loading — don't re-observe (prevents cascade)
+      if (!filterActive) loadObserver.observe(sentinel);
     } else {
       sentinel.remove();
     }
@@ -522,10 +525,11 @@ window.App.jsonView = (() => {
     }
   }
 
-  function expandAll() {
+  async function expandAll() {
+    showLoading('Expanding all…');
+    await new Promise(r => setTimeout(r, 0));
     const view = $('jsonView');
     view.classList.remove('all-collapsed');
-    // Single pass: walk all relevant elements once using TreeWalker (faster than 3 separate live-collection iterations)
     const walker = document.createTreeWalker(view, NodeFilter.SHOW_ELEMENT, {
       acceptNode(node) {
         const cl = node.classList;
@@ -540,9 +544,12 @@ window.App.jsonView = (() => {
       else if (node.classList.contains('j-toggle')) node.textContent = '\u25BC';
       else if (node.classList.contains('j-close')) node.style.display = '';
     }
+    hideLoading();
   }
 
-  function collapseAll() {
+  async function collapseAll() {
+    showLoading('Collapsing all…');
+    await new Promise(r => setTimeout(r, 0));
     const view = $('jsonView');
     const walker = document.createTreeWalker(view, NodeFilter.SHOW_ELEMENT, {
       acceptNode(node) {
@@ -558,9 +565,12 @@ window.App.jsonView = (() => {
       else if (node.classList.contains('j-toggle')) node.textContent = '\u25B6';
       else if (node.classList.contains('j-close')) node.style.display = 'none';
     }
+    hideLoading();
   }
 
-  function collapseToDepth(maxDepth) {
+  async function collapseToDepth(maxDepth) {
+    showLoading('Collapsing…');
+    await new Promise(r => setTimeout(r, 0));
     const view = $('jsonView');
     view.classList.remove('all-collapsed');
     const blocks = view.getElementsByClassName('j-block');
@@ -595,6 +605,7 @@ window.App.jsonView = (() => {
       if (closeLine) closeLine.style.display = shouldCollapse ? 'none' : '';
       tog.textContent = shouldCollapse ? '\u25B6' : '\u25BC';
     }
+    hideLoading();
   }
 
   function getDepth(el) {
@@ -746,31 +757,97 @@ window.App.jsonView = (() => {
   }
 
   /** Set filter highlight state with matched paths — persists across chunk recycle/rehydrate */
-  function setHighlight(matchedPaths) {
+  async function setHighlight(matchedPaths) {
     _filterMatchedPaths = matchedPaths;
     _filterPathRegex = null;
-    // Disconnect load observer to prevent cascade (filter hides lines → sentinel in viewport → load → repeat)
     if (loadObserver) loadObserver.disconnect();
     const view = $('jsonView');
-    if (view) applyFilterToContainer(view);
+    if (view) {
+      showLoading('Applying filter…');
+      await new Promise(r => setTimeout(r, 0));
+      applyFilterToContainer(view);
+      _installFilterScrollLoader(view);
+      _fillViewport(view, true);
+    }
   }
 
   /** Set filter highlight state with path regex — persists across chunk recycle/rehydrate */
-  function setHighlightByRegex(regex) {
+  async function setHighlightByRegex(regex) {
     _filterPathRegex = regex;
     _filterMatchedPaths = null;
     if (loadObserver) loadObserver.disconnect();
     const view = $('jsonView');
-    if (view) applyFilterToContainer(view);
+    if (view) {
+      showLoading('Applying filter…');
+      await new Promise(r => setTimeout(r, 0));
+      applyFilterToContainer(view);
+      _installFilterScrollLoader(view);
+      _fillViewport(view, true);
+    }
+  }
+
+  /** Load chunks until viewport is filled with visible content (or no more data) */
+  function _fillViewport(view, dismissSpinner) {
+    // Skip if view is hidden (e.g. table view is active) — clientHeight is 0
+    if (!view.clientHeight) { if (dismissSpinner) hideLoading(); return; }
+    const maxIterations = 200;
+    let iterations = 0;
+    const doFill = () => {
+      if (iterations++ >= maxIterations) { if (dismissSpinner) hideLoading(); return; }
+      const sentinel = view.querySelector('.j-lazy-sentinel');
+      if (!sentinel) { if (dismissSpinner) hideLoading(); return; }
+      if (view.scrollHeight > view.clientHeight + 100) { if (dismissSpinner) hideLoading(); return; }
+      loadNextChunk(sentinel);
+      requestAnimationFrame(doFill);
+    };
+    requestAnimationFrame(doFill);
+  }
+
+  /** Scroll-based chunk loader — loads chunks when user scrolls near bottom (prevents cascade) */
+  function _installFilterScrollLoader(view) {
+    _removeFilterScrollLoader(view);
+    let loading = false;
+    _filterScrollHandler = () => {
+      if (loading) return;
+      const sentinel = view.querySelector('.j-lazy-sentinel');
+      if (!sentinel) return;
+      const remaining = view.scrollHeight - view.scrollTop - view.clientHeight;
+      if (remaining < 600) {
+        loading = true;
+        showLoading('Loading more\u2026');
+        let chunksLoaded = 0;
+        const maxChunksPerScroll = 30;
+        const doLoad = () => {
+          const s = view.querySelector('.j-lazy-sentinel');
+          if (!s || chunksLoaded >= maxChunksPerScroll) { loading = false; hideLoading(); return; }
+          const rem = view.scrollHeight - view.scrollTop - view.clientHeight;
+          if (rem > 400 && chunksLoaded > 0) { loading = false; hideLoading(); return; }
+          loadNextChunk(s);
+          chunksLoaded++;
+          requestAnimationFrame(doLoad);
+        };
+        requestAnimationFrame(doLoad);
+      }
+    };
+    view.addEventListener('scroll', _filterScrollHandler, { passive: true });
+  }
+
+  function _removeFilterScrollLoader(view) {
+    if (_filterScrollHandler && view) {
+      view.removeEventListener('scroll', _filterScrollHandler);
+      _filterScrollHandler = null;
+    }
   }
 
   /** Clear filter state */
-  function clearHighlight() {
+  async function clearHighlight() {
     _filterMatchedPaths = null;
     _filterPathRegex = null;
     const view = $('jsonView');
+    _removeFilterScrollLoader(view);
     if (view) {
-      // Detach to avoid layout thrashing during bulk class removal
+      showLoading('Clearing filter…');
+      await new Promise(r => setTimeout(r, 0));
       const parent = view.parentNode;
       const next = view.nextSibling;
       if (parent) parent.removeChild(view);
@@ -788,10 +865,11 @@ window.App.jsonView = (() => {
         if (next) parent.insertBefore(view, next);
         else parent.appendChild(view);
       }
-      // Re-observe sentinels now that filter is cleared
+      // Re-observe sentinels now that filter is cleared (restore normal IO-based loading)
       if (loadObserver) {
         view.querySelectorAll('.j-lazy-sentinel').forEach(s => loadObserver.observe(s));
       }
+      hideLoading();
     }
   }
 

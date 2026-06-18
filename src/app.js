@@ -96,6 +96,11 @@ window.App = window.App || {};
 
   async function startExplorer() {
     showLoading('Rendering JSON…');
+    try {
+    // Clear any stale filter/search state from previous session
+    if (window.App.universalFilter?.isActive?.()) window.App.universalFilter.close();
+    if (window.App.search?.clearHighlights) window.App.search.clearHighlights();
+    if (window.App.nullFinder?.isActive?.()) window.App.nullFinder.clear();
     $('inputOverlay').classList.add('hidden');
     pathHistory = []; historyIndex = -1; bookmarks = [];
     window.App._jsonDataRef = jsonData; // Expose for lazy tree rendering
@@ -157,7 +162,9 @@ window.App = window.App || {};
     if (window.App.universalFilter && !window.App.universalFilter.isActive()) {
       window.App.universalFilter.open();
     }
-    hideLoading();
+    } finally {
+      hideLoading();
+    }
   }
 
   function onPathSelect(path) {
@@ -658,6 +665,10 @@ window.App = window.App || {};
     focusedLineIdx = -1;
     currentView = 'json';
     window.App._jsonDataRef = null;
+    // Clear filter/search/null-finder state
+    if (window.App.universalFilter?.isActive?.()) window.App.universalFilter.close();
+    if (window.App.search?.clearHighlights) window.App.search.clearHighlights();
+    if (window.App.nullFinder?.isActive?.()) window.App.nullFinder.clear();
     $('inputOverlay').classList.remove('hidden');
     $('pasteInput').value = '';
     $('pathInput').value = '';
@@ -697,6 +708,10 @@ window.App = window.App || {};
   document.addEventListener('tab-switch', (e) => {
     const tab = e.detail.tab;
     if (tab && tab.data) {
+      // Clear stale filter/search state from previous tab
+      if (window.App.universalFilter?.isActive?.()) window.App.universalFilter.close();
+      if (window.App.search?.clearHighlights) window.App.search.clearHighlights();
+      if (window.App.nullFinder?.isActive?.()) window.App.nullFinder.clear();
       jsonData = tab.data;
       window.App._jsonDataRef = jsonData;
       rawJsonText = tab.rawText;

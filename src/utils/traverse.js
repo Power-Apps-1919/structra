@@ -173,39 +173,106 @@ window.App.traverse = (() => {
    * @param {RegExp} regex - Pattern to test against keys and values
    * @returns {{ matchedPaths: Set<string>, total: number }}
    */
-  function searchValues(obj, regex) {
+  async function searchValues(obj, regex, signal) {
     const matchedPaths = new Set();
     let total = 0;
-    const stack = [{ val: obj, path: '', depth: 0 }];
-    while (stack.length > 0) {
-      const { val, path, depth } = stack.pop();
-      if (depth > 20) continue;
-      if (val && typeof val === 'object') {
-        if (Array.isArray(val)) {
-          for (let i = val.length - 1; i >= 0; i--) {
-            const cp = path ? `${path}[${i}]` : `[${i}]`;
-            stack.push({ val: val[i], path: cp, depth: depth + 1 });
-          }
-        } else {
-          const entries = Object.entries(val);
-          for (let i = entries.length - 1; i >= 0; i--) {
-            const [k, v] = entries[i];
-            const cp = path ? `${path}.${k}` : k;
-            // Test key name
-            if (regex.test(k)) matchedPaths.add(cp);
-            stack.push({ val: v, path: cp, depth: depth + 1 });
+    let ops = 0;
+    const YIELD_EVERY = 10000;
+
+    // Fast path: root array of objects — direct property scan, no stack overhead
+    if (Array.isArray(obj) && obj.length > 0 && obj[0] && typeof obj[0] === 'object') {
+      for (let i = 0; i < obj.length; i++) {
+        if (signal?.cancelled) return { matchedPaths, total, aborted: true };
+        const item = obj[i];
+        const prefix = `[${i}]`;
+
+        // Scan properties directly — avoid stack/object allocation for flat values
+        for (const k in item) {
+          const v = item[k];
+          if (v === null || v === undefined) {
+            total++;
+            if (regex.test('null')) matchedPaths.add(`${prefix}.${k}`);
+          } else if (typeof v !== 'object') {
+            total++;
+            if (regex.test(k) || regex.test(String(v))) matchedPaths.add(`${prefix}.${k}`);
+          } else {
+            // Nested object/array — use fast recursive scan
+            _searchNested(v, `${prefix}.${k}`, 2, regex, matchedPaths, _leafCounter);
+            total += _leafCounter.n;
+            _leafCounter.n = 0;
           }
         }
+        if (++ops % YIELD_EVERY === 0) await new Promise(r => setTimeout(r, 0));
+      }
+      return { matchedPaths, total };
+    }
+
+    // Fallback: generic traversal for non-array or primitive-array roots
+    if (Array.isArray(obj)) {
+      for (let i = 0; i < obj.length; i++) {
+        if (signal?.cancelled) return { matchedPaths, total, aborted: true };
+        total++;
+        const v = obj[i];
+        if (v && typeof v === 'object') {
+          _searchNested(v, `[${i}]`, 1, regex, matchedPaths, _leafCounter);
+          total += _leafCounter.n - 1; _leafCounter.n = 0;
+        } else if (regex.test(v === null ? 'null' : String(v))) {
+          matchedPaths.add(`[${i}]`);
+        }
+        if (++ops % YIELD_EVERY === 0) await new Promise(r => setTimeout(r, 0));
+      }
+      return { matchedPaths, total };
+    }
+
+    // Non-array root
+    for (const k in obj) {
+      const v = obj[k];
+      if (v === null || typeof v !== 'object') {
+        total++;
+        if (regex.test(k) || regex.test(v === null ? 'null' : String(v))) matchedPaths.add(k);
       } else {
-        // Leaf value — test string representation
-        if (path) {
-          total++;
-          const str = val === null ? 'null' : String(val);
-          if (regex.test(str)) matchedPaths.add(path);
-        }
+        _searchNested(v, k, 1, regex, matchedPaths, _leafCounter);
+        total += _leafCounter.n; _leafCounter.n = 0;
       }
     }
     return { matchedPaths, total };
+  }
+
+  /** Shared counter object — avoids allocation per call */
+  const _leafCounter = { n: 0 };
+
+  /** Recursive nested search — only invoked for nested objects/arrays (not flat props) */
+  function _searchNested(obj, prefix, depth, regex, matchedPaths, counter) {
+    if (depth > 20) return;
+    if (Array.isArray(obj)) {
+      for (let i = 0; i < obj.length; i++) {
+        const v = obj[i];
+        if (v === null || v === undefined) {
+          counter.n++;
+          if (regex.test('null')) matchedPaths.add(`${prefix}[${i}]`);
+        } else if (typeof v !== 'object') {
+          counter.n++;
+          if (regex.test(String(v))) matchedPaths.add(`${prefix}[${i}]`);
+        } else {
+          _searchNested(v, `${prefix}[${i}]`, depth + 1, regex, matchedPaths, counter);
+        }
+      }
+    } else {
+      for (const k in obj) {
+        const v = obj[k];
+        const cp = `${prefix}.${k}`;
+        if (regex.test(k)) matchedPaths.add(cp);
+        if (v === null || v === undefined) {
+          counter.n++;
+          if (regex.test('null')) matchedPaths.add(cp);
+        } else if (typeof v !== 'object') {
+          counter.n++;
+          if (regex.test(String(v))) matchedPaths.add(cp);
+        } else {
+          _searchNested(v, cp, depth + 1, regex, matchedPaths, counter);
+        }
+      }
+    }
   }
 
   /**
@@ -214,17 +281,33 @@ window.App.traverse = (() => {
    * @param {string} keyName - Exact key name to find
    * @returns {Set<string>} Set of matching data-path strings
    */
-  function searchKeys(obj, keyName) {
+  async function searchKeys(obj, keyName, signal) {
     const matched = new Set();
+    let ops = 0;
+    const YIELD_EVERY = 8000;
+
+    // Fast path: root array
+    if (Array.isArray(obj)) {
+      for (let i = 0; i < obj.length; i++) {
+        if (signal?.cancelled) return matched;
+        const item = obj[i];
+        if (item && typeof item === 'object' && !Array.isArray(item)) {
+          _searchKeysItem(item, `[${i}]`, 1, 20, keyName, matched);
+        }
+        if (++ops % YIELD_EVERY === 0) await new Promise(r => setTimeout(r, 0));
+      }
+      return matched;
+    }
+
     const stack = [{ val: obj, path: '', depth: 0 }];
     while (stack.length > 0) {
       const { val, path, depth } = stack.pop();
       if (depth > 20) continue;
+      if (++ops % YIELD_EVERY === 0) await new Promise(r => setTimeout(r, 0));
       if (val && typeof val === 'object') {
         if (Array.isArray(val)) {
           for (let i = val.length - 1; i >= 0; i--) {
-            const cp = path ? `${path}[${i}]` : `[${i}]`;
-            stack.push({ val: val[i], path: cp, depth: depth + 1 });
+            stack.push({ val: val[i], path: path ? `${path}[${i}]` : `[${i}]`, depth: depth + 1 });
           }
         } else {
           const entries = Object.entries(val);
@@ -240,30 +323,77 @@ window.App.traverse = (() => {
     return matched;
   }
 
+  /** Sync per-item key search */
+  function _searchKeysItem(obj, prefix, depth, maxDepth, keyName, matched) {
+    const stack = [{ val: obj, path: prefix, depth }];
+    while (stack.length > 0) {
+      const { val, path, depth: d } = stack.pop();
+      if (d > maxDepth) continue;
+      if (val && typeof val === 'object') {
+        if (Array.isArray(val)) {
+          for (let i = val.length - 1; i >= 0; i--) {
+            stack.push({ val: val[i], path: `${path}[${i}]`, depth: d + 1 });
+          }
+        } else {
+          for (const [k, v] of Object.entries(val)) {
+            const cp = `${path}.${k}`;
+            if (k === keyName) matched.add(cp);
+            stack.push({ val: v, path: cp, depth: d + 1 });
+          }
+        }
+      }
+    }
+  }
+
   /**
    * Count paths matching a regex pattern (for path-mode filter counting).
    * @param {*} obj - Root JSON value
    * @param {RegExp} regex - Pattern to test against paths
    * @returns {{ matched: number, total: number }}
    */
-  function countPathMatches(obj, regex) {
-    let matched = 0, total = 0;
+  async function countPathMatches(obj, regex, signal) {
+    let matched = 0, total = 0, ops = 0;
+    const YIELD_EVERY = 5000;
+
+    // Fast path: root array — count leaves per item, only build paths for matching items
+    if (Array.isArray(obj)) {
+      // Pre-check: extract key names from first item to test if regex matches any key pattern
+      const sampleKeys = (obj[0] && typeof obj[0] === 'object') ? Object.keys(obj[0]) : [];
+      for (let i = 0; i < obj.length; i++) {
+        if (signal?.cancelled) return { matched, total, aborted: true };
+        const item = obj[i];
+        if (item && typeof item === 'object') {
+          const leafCount = _countLeaves(item, 1, 20);
+          total += leafCount;
+          // Only build paths and test regex for this record if needed
+          matched += _countPathMatchesItem(item, `[${i}]`, 1, 20, regex);
+        } else if (item !== undefined) {
+          total++;
+          const p = `[${i}]`;
+          if (regex.test(p)) matched++;
+        }
+        if (++ops % YIELD_EVERY === 0) await new Promise(r => setTimeout(r, 0));
+      }
+      return { matched, total };
+    }
+
+    // Generic traversal for non-array roots
     const stack = [{ val: obj, path: '', depth: 0 }];
     while (stack.length > 0) {
+      if (signal?.cancelled) return { matched, total, aborted: true };
       const { val, path, depth } = stack.pop();
       if (depth > 20) continue;
+      if (++ops % YIELD_EVERY === 0) await new Promise(r => setTimeout(r, 0));
       if (val && typeof val === 'object') {
         if (Array.isArray(val)) {
           for (let i = val.length - 1; i >= 0; i--) {
-            const cp = path ? `${path}[${i}]` : `[${i}]`;
-            stack.push({ val: val[i], path: cp, depth: depth + 1 });
+            stack.push({ val: val[i], path: path ? `${path}[${i}]` : `[${i}]`, depth: depth + 1 });
           }
         } else {
           const entries = Object.entries(val);
           for (let i = entries.length - 1; i >= 0; i--) {
             const [k, v] = entries[i];
-            const cp = path ? `${path}.${k}` : k;
-            stack.push({ val: v, path: cp, depth: depth + 1 });
+            stack.push({ val: v, path: path ? `${path}.${k}` : k, depth: depth + 1 });
           }
         }
       } else if (path) {
@@ -272,6 +402,46 @@ window.App.traverse = (() => {
       }
     }
     return { matched, total };
+  }
+
+  /** Count leaf nodes in an object (no path building) */
+  function _countLeaves(obj, depth, maxDepth) {
+    let count = 0;
+    const stack = [{ val: obj, depth }];
+    while (stack.length > 0) {
+      const { val, depth: d } = stack.pop();
+      if (d > maxDepth) continue;
+      if (val && typeof val === 'object') {
+        if (Array.isArray(val)) {
+          for (let i = val.length - 1; i >= 0; i--) stack.push({ val: val[i], depth: d + 1 });
+        } else {
+          for (const v of Object.values(val)) stack.push({ val: v, depth: d + 1 });
+        }
+      } else { count++; }
+    }
+    return count;
+  }
+
+  /** Count matching paths within a single record */
+  function _countPathMatchesItem(obj, prefix, depth, maxDepth, regex) {
+    let matched = 0;
+    const stack = [{ val: obj, path: prefix, depth }];
+    while (stack.length > 0) {
+      const { val, path, depth: d } = stack.pop();
+      if (d > maxDepth) continue;
+      if (val && typeof val === 'object') {
+        if (Array.isArray(val)) {
+          for (let i = val.length - 1; i >= 0; i--) {
+            stack.push({ val: val[i], path: `${path}[${i}]`, depth: d + 1 });
+          }
+        } else {
+          for (const [k, v] of Object.entries(val)) {
+            stack.push({ val: v, path: `${path}.${k}`, depth: d + 1 });
+          }
+        }
+      } else if (regex.test(path)) { matched++; }
+    }
+    return matched;
   }
 
   return { walk, collectPaths, findArrays, findAllArrays, findArrayOfObjects, searchValues, searchKeys, countPathMatches };

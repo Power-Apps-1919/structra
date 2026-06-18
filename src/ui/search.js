@@ -30,13 +30,18 @@ window.App.search = (() => {
 
   function performSearch() {
     clearTimeout(searchDebounce);
-    searchDebounce = setTimeout(performSearchNow, 200);
+    searchDebounce = setTimeout(performSearchNow, 1000);
   }
 
-  function performSearchNow() {
+  async function performSearchNow() {
     clearHighlights();
     const query = $('searchInput').value.trim();
     if (!query) { $('searchInfo').textContent = '0/0'; searchPaths = []; return; }
+
+    // Dismiss universal filter if active — they share the same tree highlight slot
+    if (window.App.universalFilter?.isActive?.()) window.App.universalFilter.close();
+    // Dismiss null-finder if active
+    if (window.App.nullFinder?.isActive?.()) window.App.nullFinder.clear();
 
     const jsonData = window.App._jsonDataRef;
     if (!jsonData) { $('searchInfo').textContent = '0/0'; return; }
@@ -52,35 +57,50 @@ window.App.search = (() => {
       regex = new RegExp(escaped, 'i');
     }
 
+    const { showLoading, hideLoading } = window.App.dom;
+    showLoading('Searching…');
+    await new Promise(r => setTimeout(r, 0));
+
     // Data-level search — traverse entire JSON
-    const { matchedPaths } = window.App.traverse.searchValues(jsonData, regex);
+    const { matchedPaths } = await window.App.traverse.searchValues(jsonData, regex);
 
     searchPaths = [...matchedPaths];
     searchIndex = searchPaths.length > 0 ? 0 : -1;
 
     // Apply persistent highlight via json-view infrastructure
     if (window.App.jsonView?.setHighlight) {
-      window.App.jsonView.setHighlight(matchedPaths);
+      await window.App.jsonView.setHighlight(matchedPaths);
     }
+    hideLoading();
 
     updateInfo();
     if (searchPaths.length > 0) navigateToCurrentMatch();
   }
 
-  function performSearchExactKey(keyName) {
+  async function performSearchExactKey(keyName) {
     clearHighlights();
     const jsonData = window.App._jsonDataRef;
     if (!jsonData) return;
 
+    // Dismiss universal filter if active — they share the same tree highlight slot
+    if (window.App.universalFilter?.isActive?.()) window.App.universalFilter.close();
+    // Dismiss null-finder if active
+    if (window.App.nullFinder?.isActive?.()) window.App.nullFinder.clear();
+
+    const { showLoading, hideLoading } = window.App.dom;
+    showLoading('Searching…');
+    await new Promise(r => setTimeout(r, 0));
+
     // Data-level key search
-    const matchedPaths = window.App.traverse.searchKeys(jsonData, keyName);
+    const matchedPaths = await window.App.traverse.searchKeys(jsonData, keyName);
 
     searchPaths = [...matchedPaths];
     searchIndex = searchPaths.length > 0 ? 0 : -1;
 
     if (window.App.jsonView?.setHighlight) {
-      window.App.jsonView.setHighlight(matchedPaths);
+      await window.App.jsonView.setHighlight(matchedPaths);
     }
+    hideLoading();
 
     updateInfo();
     if (searchPaths.length > 0) navigateToCurrentMatch();
@@ -111,8 +131,11 @@ window.App.search = (() => {
   function clearHighlights() {
     searchPaths = [];
     searchIndex = -1;
-    if (window.App.jsonView?.clearHighlight) {
-      window.App.jsonView.clearHighlight();
+    // Only clear tree highlight if no other feature is actively owning it
+    if (!window.App.universalFilter?.isActive?.() && !window.App.nullFinder?.isActive?.()) {
+      if (window.App.jsonView?.clearHighlight) {
+        window.App.jsonView.clearHighlight();
+      }
     }
     // Also clear the single-path highlight
     if (window.App.jsonView?.highlightPath) {

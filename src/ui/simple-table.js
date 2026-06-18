@@ -82,7 +82,6 @@ window.App.simpleTable = (() => {
     for (let i = 0; i < currentData.length; i++) currentData[i].__origIdx = i;
     basePath = path;
     onSelectCb = onSelect;
-    columnOrder = Object.keys(data[0]);
     hiddenCols.clear();
     filters = {};
     sortKey = null;

@@ -10,6 +10,7 @@ window.App.universalFilter = (() => {
   let active = false;
   let historyIndex = -1;
   let debounceTimer = null;
+  let runGeneration = 0; // abort token — incremented on each run to cancel stale operations
   let getJsonData = () => null; // injected getter
 
   const HISTORY_KEY = 'jpe_filter_history';
@@ -148,8 +149,10 @@ window.App.universalFilter = (() => {
         ac.show(val.trim());  // re-show with correct items
       }
       clearTimeout(debounceTimer);
+      // Auto-run with debounce for path/regex modes only
+      // JSONPath and JS require explicit Enter/▶ click (they're slower & need complete expressions)
       if (mode === 'path' || mode === 'regex') {
-        debounceTimer = setTimeout(run, 200);
+        debounceTimer = setTimeout(run, 1200);
       }
     });
 
@@ -201,10 +204,6 @@ window.App.universalFilter = (() => {
   }
 
   // --- Table view helpers ---
-  function isTableView() {
-    return window.App.simpleTable?.isVisible?.();
-  }
-
   function getTableColumns() {
     return window.App.simpleTable?.getColumns?.() || [];
   }
@@ -219,7 +218,6 @@ window.App.universalFilter = (() => {
 
   function filterTableByJsonPath(result) {
     const data = getTableData();
-    if (!data.length) return;
     const cols = getTableColumns();
 
     // Identify matching row indices from JSONPath result pointers
@@ -236,6 +234,7 @@ window.App.universalFilter = (() => {
       }
     }
 
+    // Always set highlight (stores state even if table not yet rendered)
     window.App.simpleTable?.setHighlight?.(matchedRows, matchedCols.size > 0 ? matchedCols : null);
     active = true;
   }
@@ -245,24 +244,44 @@ window.App.universalFilter = (() => {
     if (!data.length) return;
     if (!Array.isArray(result)) return;
 
+    // Build identity set for O(1) lookup, then fall back to JSON key index
+    const identitySet = new Set(result);
     const matchedRows = new Set();
+    // First pass: identity match (fast — covers when result items ARE the same objects)
     for (let i = 0; i < data.length; i++) {
-      const row = data[i];
-      if (row && result.some(r => r === row || JSON.stringify(r) === JSON.stringify(row))) {
-        matchedRows.add(i);
+      if (identitySet.has(data[i])) { matchedRows.add(i); }
+    }
+    // If identity found nothing, try JSON string comparison (slower but handles copies)
+    if (matchedRows.size === 0 && result.length > 0) {
+      const jsonIndex = new Set(result.map(r => JSON.stringify(r)));
+      for (let i = 0; i < data.length; i++) {
+        if (jsonIndex.has(JSON.stringify(data[i]))) matchedRows.add(i);
       }
     }
 
-    window.App.simpleTable.setHighlight(matchedRows, null);
-    $('treeFilterInfo').textContent = `${matchedRows.size.toLocaleString()} / ${data.length.toLocaleString()} rows matched`;
+    window.App.simpleTable?.setHighlight?.(matchedRows, null);
   }
 
   // --- Run ---
   async function run() {
+    clearTimeout(debounceTimer);
     const raw = $('treeFilterInput').value.trim();
     if (!raw) { resetDisplay(); return; }
+
+    // Abort token — if user types again mid-run, the stale run bails out
+    const gen = ++runGeneration;
+
     pushHistory(mode, raw);
     historyIndex = -1;
+
+    // Dismiss search (Ctrl+F) if active — they share the same tree highlight slot
+    const searchBar = $('searchBar');
+    if (searchBar?.classList.contains('show')) {
+      searchBar.classList.remove('show');
+      if (window.App.search?.clearHighlights) window.App.search.clearHighlights();
+    }
+    // Dismiss null-finder if active
+    if (window.App.nullFinder?.isActive?.()) window.App.nullFinder.clear();
 
     const { showLoading, hideLoading } = window.App.dom;
     showLoading('Filtering\u2026');
@@ -271,12 +290,22 @@ window.App.universalFilter = (() => {
     // Yield to let spinner render before heavy work
     await new Promise(r => setTimeout(r, 0));
 
+    // Bail if user typed again while we were yielding
+    if (gen !== runGeneration) { hideLoading(); return; }
+
+    // Create abort signal for this run — checked by traverse functions
+    const signal = { cancelled: false, gen };
+    const checkAbort = () => {
+      if (gen !== runGeneration) { signal.cancelled = true; return true; }
+      return false;
+    };
+
     try {
       switch (mode) {
-        case 'path': filterByPath(raw); break;
+        case 'path': await filterByPath(raw, signal, checkAbort); break;
         case 'jsonpath': await filterByJsonPath(raw); break;
-        case 'regex': filterByRegex(raw); break;
-        case 'js': filterByJs(raw); break;
+        case 'regex': await filterByRegex(raw, signal, checkAbort); break;
+        case 'js': await filterByJs(raw); break;
       }
     } finally {
       hideLoading();
@@ -284,7 +313,7 @@ window.App.universalFilter = (() => {
   }
 
   // --- Path filter ---
-  function filterByPath(pattern) {
+  async function filterByPath(pattern, signal, checkAbort) {
     const jsonData = getJsonData();
     if (!jsonData) { resetDisplay(); return; }
     let regex;
@@ -295,15 +324,19 @@ window.App.universalFilter = (() => {
 
     // Apply to tree — stores regex for chunk-safe highlighting
     if (window.App.jsonView?.setHighlightByRegex) {
-      window.App.jsonView.setHighlightByRegex(regex);
+      await window.App.jsonView.setHighlightByRegex(regex);
     }
+    if (checkAbort?.()) return;
 
-    // Apply to table — match columns/values
+    // Apply to table — match columns/values, or derive from JSON if table not yet rendered
     const cols = getTableColumns();
     const data = getTableData();
+    // Column matching: test col name with a synthesized path prefix so path regex can match
+    // e.g. regex .*\.email needs 'x.email' not just 'email'
+    const colMatches = (col) => regex.test(col) || regex.test('_.' + col);
     if (cols.length && data.length) {
       const matchedCols = new Set();
-      cols.forEach(col => { if (regex.test(col)) matchedCols.add(col); });
+      cols.forEach(col => { if (colMatches(col)) matchedCols.add(col); });
       const matchedRows = new Set();
       if (matchedCols.size === 0) {
         for (let i = 0; i < data.length; i++) {
@@ -323,11 +356,42 @@ window.App.universalFilter = (() => {
         }
       }
       window.App.simpleTable?.setHighlight?.(matchedRows, matchedCols.size > 0 ? matchedCols : null);
+    } else if (Array.isArray(jsonData) && jsonData.length > 0 && typeof jsonData[0] === 'object') {
+      // Table not rendered yet — derive row indices from JSON data keys
+      const sampleKeys = Object.keys(jsonData[0]);
+      const matchedCols = new Set();
+      sampleKeys.forEach(k => { if (colMatches(k)) matchedCols.add(k); });
+      const matchedRows = new Set();
+      if (matchedCols.size === 0) {
+        // No column match — try matching values
+        for (let i = 0; i < jsonData.length; i++) {
+          const item = jsonData[i];
+          if (item && typeof item === 'object') {
+            for (const key of sampleKeys) {
+              if (item[key] != null && regex.test(String(item[key]))) { matchedRows.add(i); break; }
+            }
+          }
+        }
+      } else {
+        // Column match — include rows with non-null values in matched columns
+        for (let i = 0; i < jsonData.length; i++) {
+          const item = jsonData[i];
+          if (item && typeof item === 'object') {
+            for (const col of matchedCols) {
+              const v = item[col];
+              if (v != null && v !== '' && String(v) !== 'null') { matchedRows.add(i); break; }
+            }
+          }
+        }
+      }
+      window.App.simpleTable?.setHighlight?.(matchedRows, matchedCols.size > 0 ? matchedCols : null);
     }
 
     // Data-level count — traverse all paths, count matches
-    const { matched, total } = window.App.traverse.countPathMatches(jsonData, regex);
-    $('treeFilterInfo').textContent = `${matched.toLocaleString()} / ${total.toLocaleString()} paths matched`;
+    if (checkAbort?.()) return;
+    const result = await window.App.traverse.countPathMatches(jsonData, regex, signal);
+    if (result.aborted || checkAbort?.()) return;
+    $('treeFilterInfo').textContent = `${result.matched.toLocaleString()} / ${result.total.toLocaleString()} paths matched`;
     $('ufResults').style.display = 'none';
     active = true;
   }
@@ -350,7 +414,7 @@ window.App.universalFilter = (() => {
 
       if (result.length === 0) {
         $('treeFilterInfo').textContent = '0 matches';
-        if (window.App.jsonView?.clearHighlight) window.App.jsonView.clearHighlight();
+        if (window.App.jsonView?.clearHighlight) await window.App.jsonView.clearHighlight();
         active = false;
         return;
       }
@@ -374,7 +438,7 @@ window.App.universalFilter = (() => {
       $('treeFilterInfo').textContent = infoText;
 
       // Apply to BOTH views so filter persists across view switches
-      window.App.jsonView.setHighlight(matchedPaths);
+      await window.App.jsonView?.setHighlight?.(matchedPaths);
       filterTableByJsonPath(result);
       active = true;
     } catch (err) {
@@ -386,7 +450,7 @@ window.App.universalFilter = (() => {
   }
 
   // --- Regex value filter ---
-  function filterByRegex(raw) {
+  async function filterByRegex(raw, signal, checkAbort) {
     const jsonData = getJsonData();
     if (!jsonData) { toast('Load JSON first'); return; }
     const m = raw.match(/^\/(.+)\/([gimsuy]*)$/);
@@ -400,19 +464,21 @@ window.App.universalFilter = (() => {
     }
 
     // Data-level search — traverses entire JSON, not DOM
-    const { matchedPaths, total } = window.App.traverse.searchValues(jsonData, regex);
+    const result = await window.App.traverse.searchValues(jsonData, regex, signal);
+    if (result.aborted || checkAbort?.()) return;
+    const { matchedPaths, total } = result;
 
     $('treeFilterInfo').className = 'tree-filter-info' + (matchedPaths.size === 0 ? ' uf-no-match' : '');
     if (matchedPaths.size === 0) {
       $('treeFilterInfo').textContent = '0 matches';
-      if (window.App.jsonView?.clearHighlight) window.App.jsonView.clearHighlight();
+      if (window.App.jsonView?.clearHighlight) await window.App.jsonView.clearHighlight();
       resetTableFilter();
       active = false;
       return;
     }
 
     // Apply to BOTH views so filter persists across view switches
-    window.App.jsonView.setHighlight(matchedPaths);
+    await window.App.jsonView?.setHighlight?.(matchedPaths);
 
     // Derive matched row indices for table view
     const matchedRows = new Set();
@@ -430,7 +496,8 @@ window.App.universalFilter = (() => {
     cols.forEach(col => { if (regex.test(col)) matchedCols.add(col); });
     if (matchedCols.size > 0) {
       // If column name matches, include all rows
-      for (let i = 0; i < (getTableData()?.length || 0); i++) matchedRows.add(i);
+      const rowCount = getTableData()?.length || (Array.isArray(jsonData) ? jsonData.length : 0);
+      for (let i = 0; i < rowCount; i++) matchedRows.add(i);
     }
     window.App.simpleTable?.setHighlight?.(matchedRows, matchedCols.size > 0 ? matchedCols : null);
 
@@ -450,7 +517,7 @@ window.App.universalFilter = (() => {
   }
 
   // --- JS expression filter ---
-  function filterByJs(raw) {
+  async function filterByJs(raw) {
     const jsonData = getJsonData();
     if (!jsonData) { toast('Load JSON first'); return; }
     const expr = raw.startsWith('=') ? raw.slice(1).trim() : raw;
@@ -481,10 +548,50 @@ window.App.universalFilter = (() => {
       $('treeFilterInfo').textContent = typeStr;
       $('treeFilterInfo').className = 'tree-filter-info';
 
-      const display = typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result);
+      // For large array results, show only a preview (avoid freezing on JSON.stringify of 150K items)
+      let display;
+      if (Array.isArray(result) && result.length > 100) {
+        const preview = JSON.stringify(result.slice(0, 20), null, 2);
+        display = preview.slice(0, -2) + ',\n  // ... ' + (result.length - 20).toLocaleString() + ' more items\n]';
+      } else {
+        display = typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result);
+      }
       resEl.innerHTML = `<pre class="uf-val">${esc(display.length > 50000 ? display.slice(0, 50000) + '\n... (truncated)' : display)}</pre>`;
       resEl.style.display = '';
-      if (isTableView()) { resetTableFilter(); filterTableByJs(result); }
+
+      // Apply to BOTH views when result is an array (same pattern as other modes)
+      if (Array.isArray(result) && Array.isArray(jsonData)) {
+        // Derive matched row indices for tree + table using O(n) identity check
+        const identitySet = new Set(result);
+        const matchedPaths = new Set();
+        const matchedRows = new Set();
+        let identityMatched = false;
+        for (let i = 0; i < jsonData.length; i++) {
+          if (identitySet.has(jsonData[i])) {
+            matchedPaths.add(`[${i}]`);
+            matchedRows.add(i);
+            identityMatched = true;
+          }
+        }
+        // Fallback: JSON string comparison if identity found nothing (handles copies)
+        if (!identityMatched && result.length > 0) {
+          const jsonIndex = new Set(result.map(r => JSON.stringify(r)));
+          for (let i = 0; i < jsonData.length; i++) {
+            if (jsonIndex.has(JSON.stringify(jsonData[i]))) {
+              matchedPaths.add(`[${i}]`);
+              matchedRows.add(i);
+            }
+          }
+        }
+        if (matchedPaths.size > 0) {
+          await window.App.jsonView?.setHighlight?.(matchedPaths);
+        }
+        // Always set table highlight (stores state even if table not yet rendered)
+        window.App.simpleTable?.setHighlight?.(matchedRows, null);
+        $('treeFilterInfo').textContent = `${matchedPaths.size.toLocaleString()} / ${jsonData.length.toLocaleString()} rows matched`;
+      } else {
+        filterTableByJs(result);
+      }
       active = true;
     } catch (err) {
       $('treeFilterInfo').textContent = 'Error';

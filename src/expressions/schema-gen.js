@@ -86,11 +86,16 @@ window.App.schemaGen = (() => {
 
   function render(jsonData) {
     if (!jsonData) return;
+    const contentEl = $('schemaGenContent');
+    const bodyEl = $('schemaGenBody');
+    const outputEl = $('schemaOutput');
+    if (!contentEl || !bodyEl || !outputEl) return;
     const schema = generateJsonSchema(jsonData);
     const output = JSON.stringify(schema, null, 2);
-    $('schemaGenContent').style.display = 'block';
-    $('schemaGenBody').querySelector('.no-result').style.display = 'none';
-    $('schemaOutput').textContent = output;
+    contentEl.style.display = 'block';
+    const noResult = bodyEl.querySelector('.no-result');
+    if (noResult) noResult.style.display = 'none';
+    outputEl.textContent = output;
   }
 
   function init() {
