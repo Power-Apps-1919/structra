@@ -31,7 +31,7 @@ window.App = window.App || {};
   let jsonWorkerReqId = 0;
   function initWorker() {
     try {
-      jsonWorker = new Worker('src/workers/json-parser.js');
+      jsonWorker = new Worker('src/workers/json-parser.js?v=20260618');
     } catch (e) {
       jsonWorker = null; // Fallback to sync parse if worker fails
     }
