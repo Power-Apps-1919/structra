@@ -1,0 +1,36 @@
+{
+    "empty_key": "empty key",
+    "unicode": "cafe",
+    "longStr": "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghij",
+    "bigNumber": 99999999999999,
+    "negFloat": -0.001,
+    "booleans": [
+        true,
+        true,
+        false,
+        true,
+        false
+    ],
+    "allNull": [
+        null,
+        null,
+        null
+    ],
+    "singleObj": [
+        {}
+    ],
+    "singleArr": [
+        []
+    ],
+    "deepEmpty": {
+        "a": {
+            "b": {
+                "c": {
+                    "d": {
+                        "e": {}
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "a.b.c": "dot in key",
+    "[0]": "bracket key",
+    "key\"quote": "quote in key",
+    "<script>alert(1)</script>": "xss attempt",
+    "data-ln": "999",
+    "data-path": "fake/path",
+    "class": "j-line",
+    "": "empty key",
+    " ": "space key",
+    "\\n\\t": "escape chars"
+}

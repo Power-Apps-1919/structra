@@ -1,0 +1,33 @@
+{
+    "key_with_spaces": "value",
+    "nested_empty": {
+        "a": {
+            "b": {
+                "c": {}
+            }
+        }
+    },
+    "array_of_empties": [
+        {},
+        {},
+        [],
+        []
+    ],
+    "deep_array": [
+        [
+            [
+                []
+            ]
+        ]
+    ],
+    "single_item": [
+        1
+    ],
+    "null_values": {
+        "x": null,
+        "y": null,
+        "z": {
+            "w": null
+        }
+    }
+}

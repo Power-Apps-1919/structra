@@ -1,0 +1,90 @@
+{
+    "a": {
+        "b": {
+            "c": {
+                "d": {
+                    "e": "deep"
+                }
+            }
+        }
+    },
+    "arr1": [
+        {
+            "arr2": [
+                {
+                    "arr3": [
+                        1,
+                        2,
+                        3
+                    ]
+                }
+            ]
+        }
+    ],
+    "flat": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+    ],
+    "objects": [
+        {
+            "type": "A",
+            "values": [
+                10,
+                20,
+                30
+            ],
+            "meta": {
+                "tags": [
+                    "x"
+                ]
+            }
+        },
+        {
+            "type": "B",
+            "values": [],
+            "meta": {
+                "tags": []
+            }
+        },
+        {
+            "type": "C",
+            "values": [
+                40
+            ],
+            "meta": {
+                "tags": [
+                    "y",
+                    "z"
+                ],
+                "extra": {
+                    "nested": true
+                }
+            }
+        }
+    ],
+    "emptyNested": {
+        "a": {
+            "b": {
+                "c": []
+            }
+        }
+    },
+    "primitives": [
+        null,
+        true,
+        false,
+        0,
+        -1,
+        3.14,
+        "",
+        "hello"
+    ]
+}

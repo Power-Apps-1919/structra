@@ -1,0 +1,42 @@
+﻿{
+    "level1":  {
+                   "level2":  {
+                                  "level3":  {
+                                                 "items":  [
+                                                               {
+                                                                   "id":  1,
+                                                                   "value":  "first"
+                                                               },
+                                                               {
+                                                                   "id":  2,
+                                                                   "value":  "second"
+                                                               },
+                                                               {
+                                                                   "id":  3,
+                                                                   "value":  "third"
+                                                               }
+                                                           ],
+                                                 "level4":  {
+                                                                "info":  "deep value",
+                                                                "data":  [
+                                                                             1,
+                                                                             2,
+                                                                             3,
+                                                                             4,
+                                                                             5
+                                                                         ]
+                                                            }
+                                             },
+                                  "sibling":  {
+                                                  "key":  "val",
+                                                  "num":  42
+                                              }
+                              },
+                   "flat":  [
+                                "a",
+                                "b",
+                                "c"
+                            ]
+               },
+    "top":  "simple"
+}

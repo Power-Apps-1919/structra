@@ -1,0 +1,43 @@
+﻿{
+    "users": [
+        {
+            "name": "Alice",
+            "age": 30,
+            "tags": [],
+            "meta": {}
+        },
+        {
+            "name": "Bob",
+            "age": 25,
+            "tags": [
+                "admin",
+                "user"
+            ],
+            "meta": {
+                "role": "manager",
+                "settings": {}
+            }
+        },
+        {
+            "name": "Charlie",
+            "age": 35,
+            "tags": [
+                "viewer"
+            ],
+            "meta": {
+                "role": "viewer",
+                "prefs": {
+                    "theme": "dark",
+                    "lang": "en"
+                }
+            }
+        }
+    ],
+    "config": {
+        "debug": true,
+        "version": "1.0",
+        "plugins": []
+    },
+    "empty": {},
+    "emptyArr": []
+}

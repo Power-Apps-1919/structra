@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Structra</title>
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg?v=2">
+  <link rel="stylesheet" href="src/css/styles.css">
+</head>
+<body>
+  <div class="input-overlay" id="inputOverlay">
+    <button class="overlay-theme-toggle" id="overlayThemeToggle" title="Toggle theme"><i data-lucide="moon"></i></button>
+    <div class="input-box">
+      <h2><svg class="icon-brand" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5"/><line x1="12" y1="22" x2="12" y2="15.5"/><line x1="22" y1="8.5" x2="12" y2="15.5"/><line x1="2" y1="8.5" x2="12" y2="15.5"/><line x1="12" y1="2" x2="12" y2="8" stroke-width="1.5"/><circle cx="12" cy="15.5" r="1.5" fill="currentColor" stroke="none"/></svg> Structra</h2>
+      <div class="sub">Explore your JSON data, navigate paths, and generate code</div>
+      <div class="input-tabs">
+        <button class="input-tab-btn active" data-t="file">Upload File</button>
+        <button class="input-tab-btn" data-t="text">Paste JSON</button>
+        <button class="input-tab-btn" data-t="csv">Import CSV</button>
+        <button class="input-tab-btn" data-t="url">Load URL</button>
+        <button class="input-tab-btn" data-t="recent">Recent</button>
+      </div>
+      <div class="input-panel active" id="ip-file">
+        <div class="drop-area" id="dropArea"><div class="icon">&#128196;</div><p><strong>Drop JSON file here</strong> or click to browse</p></div>
+        <input type="file" id="fileInput" accept=".json,.txt">
+      </div>
+      <div class="input-panel" id="ip-text">
+        <textarea class="paste-input" id="pasteInput" placeholder="Paste your JSON here..."></textarea>
+        <button class="btn-go" id="btnGo">&#9654; Load &amp; Explore</button>
+      </div>
+      <div class="input-panel" id="ip-csv">
+        <textarea class="paste-input" id="csvInput" placeholder="Paste CSV/TSV data here..."></textarea>
+        <button class="btn-go" id="btnCsvGo">&#9654; Parse CSV &amp; Load</button>
+      </div>
+      <div class="input-panel" id="ip-url">
+        <div class="api-row">
+          <select class="api-method" id="apiMethod">
+            <option value="GET" selected>GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="PATCH">PATCH</option>
+            <option value="DELETE">DELETE</option>
+          </select>
+          <input type="text" class="api-url" id="apiUrlInput" placeholder="https://api.example.com/data" autocomplete="off">
+          <button class="btn-go api-send" id="btnApiSend">&#9654; Send</button>
+        </div>
+        <div class="api-options">
+          <div class="api-option-tabs">
+            <button class="api-opt-tab active" data-ap="auth">Auth</button>
+            <button class="api-opt-tab" data-ap="headers">Headers</button>
+            <button class="api-opt-tab" data-ap="body">Body</button>
+          </div>
+          <div class="api-opt-panel active" id="ap-auth">
+            <div class="api-auth-row">
+              <select class="api-auth-type" id="apiAuthType">
+                <option value="none" selected>No Auth</option>
+                <option value="bearer">Bearer Token</option>
+                <option value="basic">Basic Auth</option>
+                <option value="apikey">API Key</option>
+              </select>
+            </div>
+            <div class="api-auth-fields" id="apiAuthFields"></div>
+          </div>
+          <div class="api-opt-panel" id="ap-headers">
+            <div class="api-kv-list" id="apiHeadersList">
+              <div class="api-kv-row">
+                <input type="text" placeholder="Header name" class="api-kv-key">
+                <input type="text" placeholder="Value" class="api-kv-val">
+                <button class="api-kv-remove" title="Remove">&#10005;</button>
+              </div>
+            </div>
+            <button class="api-add-row" id="apiAddHeader">+ Add Header</button>
+          </div>
+          <div class="api-opt-panel" id="ap-body">
+            <div class="api-body-type-row">
+              <select class="api-body-type" id="apiBodyType">
+                <option value="none">No Body</option>
+                <option value="json">JSON</option>
+                <option value="text">Plain Text</option>
+                <option value="form">Form URL-Encoded</option>
+              </select>
+            </div>
+            <textarea class="api-body-editor" id="apiBodyEditor" placeholder='{"key": "value"}' style="display:none"></textarea>
+          </div>
+        </div>
+        <div class="api-status" id="apiStatus"></div>
+        <div class="url-error" id="urlLandingError"></div>
+      </div>
+      <div class="input-panel" id="ip-recent">
+        <div class="recent-list" id="recentList"><div class="recent-empty">No recent files</div></div>
+      </div>
+      <div class="input-error" id="inputError"></div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <span class="brand"><svg class="icon-brand" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5"/><line x1="12" y1="22" x2="12" y2="15.5"/><line x1="22" y1="8.5" x2="12" y2="15.5"/><line x1="2" y1="8.5" x2="12" y2="15.5"/><line x1="12" y1="2" x2="12" y2="8" stroke-width="1.5"/><circle cx="12" cy="15.5" r="1.5" fill="currentColor" stroke="none"/></svg> Structra</span>
+    <div class="sep"></div>
+    <div class="toolbar-items">
+    <div class="history-btns">
+      <button id="btnBack" title="Back (Alt+Left)" disabled>&#8592;</button>
+      <button id="btnForward" title="Forward (Alt+Right)" disabled>&#8594;</button>
+    </div>
+    <div class="path-input-wrap">
+      <span class="label">Path</span>
+      <input type="text" class="path-input" id="pathInput" placeholder="Click an element or type a path (e.g. body.value[0].name)" autocomplete="off">
+    </div>
+    <button class="toolbar-btn" id="btnCopy" title="Copy path"><i data-lucide="copy"></i></button>
+    <button class="toolbar-btn" id="btnBookmark" title="Bookmark path (Ctrl+B)"><i data-lucide="bookmark"></i></button>
+    <div class="sep"></div>
+    <button class="toolbar-btn" id="btnSearch" title="Search (Ctrl+F)"><i data-lucide="search"></i></button>
+    <button class="toolbar-btn" id="btnTreeFilter" title="Advanced Filter (Ctrl+Shift+F)"><i data-lucide="filter"></i></button>
+    <button class="toolbar-btn" id="btnTable" title="Table View (Ctrl+2)"><i data-lucide="table"></i></button>
+    <div class="toolbar-group">
+      <button class="toolbar-btn toolbar-group-trigger" title="Views"><i data-lucide="eye"></i><i data-lucide="chevron-down" class="chevron-dd"></i></button>
+      <div class="toolbar-group-menu">
+        <button class="toolbar-group-item" id="btnGraph" title="Graph View"><i data-lucide="git-fork"></i><span>Graph View</span></button>
+        <button class="toolbar-group-item" id="btnSchema" title="Schema Preview (Ctrl+3)"><i data-lucide="file-json"></i><span>Schema Preview</span></button>
+        <button class="toolbar-group-item" id="btnTypeDef" title="Generate Types"><i data-lucide="file-type"></i><span>Generate Types</span></button>
+        <button class="toolbar-group-item" id="btnDiff" title="Compare JSON"><i data-lucide="columns-2"></i><span>Compare JSON</span></button>
+      </div>
+    </div>
+    <button class="toolbar-btn" id="btnTransform" title="Transform (Ctrl+T)"><i data-lucide="wand-2"></i></button>
+    <div class="sep"></div>
+    <div class="toolbar-group">
+      <button class="toolbar-btn toolbar-group-trigger" title="Export & Share"><i data-lucide="download"></i><i data-lucide="chevron-down" class="chevron-dd"></i></button>
+      <div class="toolbar-group-menu">
+        <button class="toolbar-group-item" id="btnExport" title="Export CSV"><i data-lucide="file-spreadsheet"></i><span>Export CSV</span></button>
+        <button class="toolbar-group-item" id="btnConvert" title="Convert format"><i data-lucide="repeat-2"></i><span>Convert format</span></button>
+        <button class="toolbar-group-item" id="btnImg" title="Export as Image"><i data-lucide="image"></i><span>Export as Image</span></button>
+        <button class="toolbar-group-item" id="btnShare" title="Share URL"><i data-lucide="external-link"></i><span>Share URL</span></button>
+        <button class="toolbar-group-item" id="btnWorkspaceExport" title="Save or Load Workspace"><i data-lucide="hard-drive-download"></i><span>Save or Load Workspace</span></button>
+      </div>
+    </div>
+    <input type="file" id="workspaceImportInput" accept=".json" style="display:none">
+    <div class="toolbar-group">
+      <button class="toolbar-btn toolbar-group-trigger" title="Analyze"><i data-lucide="activity"></i><i data-lucide="chevron-down" class="chevron-dd"></i></button>
+      <div class="toolbar-group-menu">
+        <button class="toolbar-group-item" id="btnNullFinder" title="Find null or empty values"><i data-lucide="search-x"></i><span>Find Null or Empty</span></button>
+        <button class="toolbar-group-item" id="btnHeatmap" title="Size Heatmap"><i data-lucide="flame"></i><span>Size Heatmap</span></button>
+        <button class="toolbar-group-item" id="btnCharts" title="Data Charts"><i data-lucide="bar-chart-2"></i><span>Data Charts</span></button>
+        <button class="toolbar-group-item" id="btnProfile" title="Data Profile"><i data-lucide="scan-line"></i><span>Data Profile</span></button>
+        <button class="toolbar-group-item" id="btnMinimap" title="Tree Overview"><i data-lucide="map"></i><span>Tree Overview</span></button>
+        <button class="toolbar-group-item" id="btnPivot" title="Pivot Table"><i data-lucide="table-2"></i><span>Pivot Table</span></button>
+      </div>
+    </div>
+    <div class="toolbar-group">
+      <button class="toolbar-btn toolbar-group-trigger" title="Tools"><i data-lucide="settings"></i><i data-lucide="chevron-down" class="chevron-dd"></i></button>
+      <div class="toolbar-group-menu">
+        <button class="toolbar-group-item" id="btnValidate" title="Validate Schema"><i data-lucide="shield-check"></i><span>Validate Schema</span></button>
+        <button class="toolbar-group-item" id="btnUrl" title="Load from URL"><i data-lucide="globe"></i><span>Load from URL</span></button>
+        <button class="toolbar-group-item" id="btnRepair" title="Repair JSON"><i data-lucide="wrench"></i><span>Repair JSON</span></button>
+        <button class="toolbar-group-item" id="btnSnippets" title="Snippet Library"><i data-lucide="library"></i><span>Snippet Library</span></button>
+        <button class="toolbar-group-item" id="btnMask" title="Mask Sensitive Data"><i data-lucide="eye-off"></i><span>Mask Sensitive Data</span></button>
+      </div>
+    </div>
+    <div class="sep"></div>
+    <button class="toolbar-btn" id="btnSort" title="Sort Keys"><i data-lucide="arrow-down-a-z"></i></button>
+    <button class="toolbar-btn" id="btnFlatten" title="Flatten or Unflatten"><i data-lucide="layout-grid"></i></button>
+    <button class="toolbar-btn" id="btnMinify" title="Compact or Expand"><i data-lucide="braces"></i></button>
+    <button class="toolbar-btn btn-clear" id="btnNew" title="Clear &amp; Load New JSON"><i data-lucide="trash-2"></i></button>
+    <button class="toolbar-btn" id="btnDark" title="Toggle theme"><i data-lucide="moon"></i></button>
+    <button class="toolbar-btn" id="btnCmdPalette" title="Commands (Ctrl+K)"><i data-lucide="terminal"></i></button>
+    </div>
+  </div>
+
+  <div class="breadcrumb-bar" id="breadcrumb"></div>
+
+  <div class="main">
+    <div class="json-panel">
+      <div class="panel-header">
+        <span>JSON Document</span>
+        <span class="meta" id="docMeta"></span>
+        <div class="panel-btns">
+          <button id="btnExpandAll" title="Expand All">+All</button>
+          <button id="btnCollapseAll" title="Collapse All">&minus;All</button>
+          <button id="btnDepth1" title="Collapse to depth 1">D1</button>
+          <button id="btnDepth2" title="Collapse to depth 2">D2</button>
+          <button id="btnDepth3" title="Collapse to depth 3">D3</button>
+          <button id="btnWrap" title="Toggle Word Wrap">Wrap</button>
+          <button id="btnEdit" title="Edit JSON">Edit</button>
+          <span class="panel-separator" id="treeZoomSep"></span>
+          <span id="treeZoomGroup">
+            <button id="btnZoomOut" title="Zoom Out (Ctrl+-)">&#8722;</button>
+            <select id="zoomSelect" class="zoom-select" title="Zoom Level">
+              <option value="50">50%</option>
+              <option value="75">75%</option>
+              <option value="80">80%</option>
+              <option value="90">90%</option>
+              <option value="100" selected>100%</option>
+              <option value="110">110%</option>
+              <option value="125">125%</option>
+              <option value="150">150%</option>
+              <option value="175">175%</option>
+              <option value="200">200%</option>
+            </select>
+            <button id="btnZoomIn" title="Zoom In (Ctrl+=)">&#43;</button>
+            <button id="btnZoomFit" title="Zoom to Fit">Fit</button>
+          </span>
+        </div>
+      </div>
+      <div class="tree-filter-bar" id="treeFilterBar" style="display:none">
+        <span class="uf-input-wrap">
+          <textarea id="treeFilterInput" rows="3" placeholder="Filter by path, pattern, or expression...&#10;e.g. *.email or $..name&#10;or /^[A-Z]/ or =data.filter(x => x.age > 25)"></textarea>
+        </span>
+        <button class="uf-run" id="ufRun" title="Run (Enter)" style="display:none">&#9654;</button>
+        <span class="tree-filter-info" id="treeFilterInfo"></span>
+        <span class="uf-help-link" id="ufHelpBtn" title="Syntax help">?</span>
+        <button id="treeFilterClear" title="Clear filter">&#10005;</button>
+      </div>
+      <div class="uf-results" id="ufResults" style="display:none"></div>
+      <div class="search-bar" id="searchBar">
+        <div class="search-row">
+          <input type="text" id="searchInput" placeholder="Search keys or values...">
+          <span class="search-info" id="searchInfo">0/0</span>
+          <button id="searchPrev">&#8593;</button>
+          <button id="searchNext">&#8595;</button>
+          <button id="searchToggleReplace" title="Toggle Replace (Ctrl+H)">&#8597;</button>
+          <button id="searchClose">&#10005;</button>
+        </div>
+        <div class="replace-row" id="replaceRow">
+          <input type="text" id="replaceInput" placeholder="Replace with...">
+          <button class="replace-btn" id="replaceOne">Replace</button>
+          <button class="replace-btn" id="replaceAll">All</button>
+          <label class="search-opt"><input type="checkbox" id="searchRegex"> Pattern</label>
+          <label class="search-opt"><input type="checkbox" id="searchKeys"> Keys</label>
+        </div>
+      </div>
+      <div class="json-view" id="jsonView"></div>
+      <div class="graph-view hidden" id="graphView">
+        <div class="graph-zoom-toolbar" id="graphZoomToolbar">
+          <button class="gz-btn" id="gzFit" title="Zoom to fit (Ctrl+Shift+1)">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 5V2h3M11 2h3v3M14 11v3h-3M5 14H2v-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <span class="gz-sep"></span>
+          <button class="gz-btn" id="gzOut" title="Zoom out (Ctrl+-)">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 8h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </button>
+          <span class="gz-level" id="gzLevel">100%</span>
+          <button class="gz-btn" id="gzIn" title="Zoom in (Ctrl+=)">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 4v8M4 8h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </button>
+          <span class="gz-sep"></span>
+          <button class="gz-btn" id="gzReset" title="Reset to 100%">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8a6 6 0 0 1 10.3-4.1M14 2v3h-3M14 8a6 6 0 0 1-10.3 4.1M2 14v-3h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="json-editor hidden" id="jsonEditor">
+        <div class="je-toolbar">
+          <button class="je-btn je-btn-primary" id="jeApply" title="Apply changes (Ctrl+Enter)">&#9654; Apply</button>
+          <button class="je-btn" id="jeFormat" title="Format / Pretty-print">Format</button>
+          <button class="je-btn" id="jeMinify" title="Minify JSON">Minify</button>
+          <button class="je-btn" id="jeUndo" title="Undo (Ctrl+Z)">Undo</button>
+          <span class="je-status" id="jeStatus"></span>
+        </div>
+        <div class="je-body">
+          <div class="je-lines" id="jeLines"></div>
+          <textarea class="je-textarea" id="jeTextarea" spellcheck="false" autocomplete="off" autocorrect="off" title="JSON Editor"></textarea>
+        </div>
+      </div>
+      <div class="simple-table-view" id="simpleTableView"></div>
+      <div class="schema-view" id="schemaView"></div>
+    </div>
+    <div class="resizer" id="panelResizer"><div class="resizer-collapse" id="resizerCollapse" title="Collapse/Expand right panel">&#9654;</div></div>
+    <div class="right-panel" id="rightPanel">
+      <div class="accordion open" id="accStats">
+        <div class="acc-header"><h3><i data-lucide="bar-chart-3"></i> Stats</h3><span class="chevron">&#9654;</span></div>
+        <div class="acc-body"><div class="acc-inner" id="statsBody"><div class="no-result">Load JSON to see stats</div></div></div>
+      </div>
+      <div class="accordion" id="accBookmarks">
+        <div class="acc-header"><h3><i data-lucide="bookmark"></i> Bookmarks</h3><span class="chevron">&#9654;</span></div>
+        <div class="acc-body"><div class="acc-inner" id="bookmarksBody"><div class="no-result">No bookmarks yet</div></div></div>
+      </div>
+      <div class="accordion open" id="accResult">
+        <div class="acc-header"><h3><i data-lucide="file-text"></i> Path Result <span class="acc-badge" id="resultBadge"></span></h3><span class="chevron">&#9654;</span></div>
+        <div class="acc-body"><div class="acc-inner" id="resultBody"><div class="no-result">Click any element in the JSON or type a path above</div></div></div>
+      </div>
+      <div class="accordion open" id="accExpr">
+        <div class="acc-header"><h3><i data-lucide="zap"></i> Power Platform Expressions</h3><span class="chevron">&#9654;</span></div>
+        <div class="acc-body"><div class="acc-inner" id="exprBody">
+          <div class="expr-subtabs">
+            <div class="expr-subtab active" data-et="automate"><i data-lucide="zap" class="icon-sm"></i> Power Automate</div>
+            <div class="expr-subtab" data-et="canvas"><i data-lucide="paintbrush" class="icon-sm"></i> Canvas App</div>
+          </div>
+          <div class="expr-pane active" id="ep-automate"><div class="no-result">Select a path to see expressions</div></div>
+          <div class="expr-pane" id="ep-canvas"><div class="no-result">Select a path to see expressions</div></div>
+        </div></div>
+      </div>
+      <div class="accordion" id="accHelpers">
+        <div class="acc-header"><h3><i data-lucide="wrench"></i> Power Platform Helpers</h3><span class="chevron">&#9654;</span></div>
+        <div class="acc-body"><div class="acc-inner" id="helpersBody"><div class="no-result">Load JSON for utilities</div></div></div>
+      </div>
+      <div class="accordion" id="accSchema">
+        <div class="acc-header"><h3><i data-lucide="file-code"></i> Parse JSON Schema</h3><span class="chevron">&#9654;</span></div>
+        <div class="acc-body"><div class="acc-inner" id="schemaGenBody">
+          <div class="no-result">Load JSON to generate schema</div>
+          <div id="schemaGenContent" class="schema-gen-content">
+            <div class="schema-gen-toolbar">
+              <button class="btn-go schema-copy-btn" id="btnCopySchema">&#128203; Copy Schema</button>
+              <span class="schema-hint">Paste directly into Parse JSON action</span>
+            </div>
+            <pre id="schemaOutput" class="schema-output"></pre>
+          </div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ctx-menu" id="ctxMenu">
+    <div class="ctx-item" data-action="copy-path"><span>&#128203;</span> Copy Path</div>
+    <div class="ctx-item" data-action="copy-value"><span>&#128196;</span> Copy Value</div>
+    <div class="ctx-item" data-action="copy-subtree"><span>&#127795;</span> Copy Subtree (JSON)</div>
+    <div class="ctx-item ctx-has-sub" data-action="copy-as"><span>&#128187;</span> Copy As...
+      <div class="ctx-submenu" id="ctxCopyAs">
+        <div class="ctx-item" data-lang="typescript">TypeScript</div>
+        <div class="ctx-item" data-lang="python">Python</div>
+        <div class="ctx-item" data-lang="csharp">C#</div>
+        <div class="ctx-item" data-lang="go">Go</div>
+        <div class="ctx-item" data-lang="rust">Rust</div>
+        <div class="ctx-item" data-lang="java">Java</div>
+        <div class="ctx-item" data-lang="sql">SQL</div>
+      </div>
+    </div>
+    <div class="ctx-item" data-action="bookmark"><span>&#11088;</span> Bookmark</div>
+    <div class="ctx-item" data-action="gen-mock"><span>&#9889;</span> Generate Mock Data</div>
+  </div>
+
+  <div class="diff-overlay" id="diffOverlay">
+    <div class="diff-box">
+      <div class="diff-header"><h3>JSON Diff</h3><button class="toolbar-btn" id="diffShowAll" title="Show/hide unchanged">&#9776; All</button><button class="toolbar-btn" id="diffClose">&#10005; Close</button></div>
+      <div class="diff-toolbar">
+        <select id="diffTabSelect" class="diff-tab-select" title="Load from another tab"><option value="">Load from Tab</option></select>
+        <textarea id="diffInput" class="diff-input" placeholder="Paste second JSON to compare..."></textarea>
+        <button class="btn-go diff-run-btn" id="btnDiffRun">Compare</button>
+        <button class="toolbar-btn" id="btnDiffPatch" title="Copy RFC 6902 JSON Patch"><i data-lucide="file-diff"></i> Patch</button>
+      </div>
+      <div class="diff-body"><div class="diff-pane" id="diffLeft"></div><div class="diff-pane" id="diffRight"></div></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="convertModal">
+    <div class="modal-box">
+      <div class="modal-header"><h3>Convert Format</h3><button class="toolbar-btn" id="convertClose">&#10005;</button></div>
+      <div class="modal-tabs">
+        <button class="active" data-cv="yaml">YAML</button>
+        <button data-cv="xml">XML</button>
+      </div>
+      <div class="modal-body" id="convertBody"></div>
+      <div class="modal-footer"><button class="primary" id="convertCopy">Copy to Clipboard</button></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="urlModal">
+    <div class="modal-box" style="width:560px">
+      <div class="modal-header"><h3>Load JSON from API</h3><button class="toolbar-btn" id="urlClose">&#10005;</button></div>
+      <div class="modal-body" style="white-space:normal;font-family:inherit;font-size:inherit;padding:16px">
+        <div class="api-row">
+          <select class="api-method" id="modalApiMethod">
+            <option value="GET" selected>GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="PATCH">PATCH</option>
+            <option value="DELETE">DELETE</option>
+          </select>
+          <input type="text" class="api-url" id="modalApiUrl" placeholder="https://api.example.com/data" autocomplete="off">
+          <button class="btn-go api-send" id="modalApiSend">&#9654; Send</button>
+        </div>
+        <div class="api-options">
+          <div class="api-option-tabs">
+            <button class="api-opt-tab active" data-mp="mauth">Auth</button>
+            <button class="api-opt-tab" data-mp="mheaders">Headers</button>
+            <button class="api-opt-tab" data-mp="mbody">Body</button>
+          </div>
+          <div class="api-opt-panel active" id="mp-mauth">
+            <div class="api-auth-row">
+              <select class="api-auth-type" id="modalAuthType">
+                <option value="none" selected>No Auth</option>
+                <option value="bearer">Bearer Token</option>
+                <option value="basic">Basic Auth</option>
+                <option value="apikey">API Key</option>
+              </select>
+            </div>
+            <div class="api-auth-fields" id="modalAuthFields"></div>
+          </div>
+          <div class="api-opt-panel" id="mp-mheaders">
+            <div class="api-kv-list" id="modalHeadersList">
+              <div class="api-kv-row">
+                <input type="text" placeholder="Header name" class="api-kv-key">
+                <input type="text" placeholder="Value" class="api-kv-val">
+                <button class="api-kv-remove" title="Remove">&#10005;</button>
+              </div>
+            </div>
+            <button class="api-add-row" id="modalAddHeader">+ Add Header</button>
+          </div>
+          <div class="api-opt-panel" id="mp-mbody">
+            <div class="api-body-type-row">
+              <select class="api-body-type" id="modalBodyType">
+                <option value="none">No Body</option>
+                <option value="json">JSON</option>
+                <option value="text">Plain Text</option>
+                <option value="form">Form URL-Encoded</option>
+              </select>
+            </div>
+            <textarea class="api-body-editor" id="modalBodyEditor" placeholder='{"key": "value"}' style="display:none"></textarea>
+          </div>
+        </div>
+        <div class="api-status" id="modalApiStatus"></div>
+        <div class="url-error" id="urlError"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="typeDefModal">
+    <div class="modal-box">
+      <div class="modal-header"><h3>Type Definitions</h3><button class="toolbar-btn" id="typeDefClose">&#10005;</button></div>
+      <div class="modal-tabs">
+        <button class="active" data-td="ts">TypeScript</button>
+        <button data-td="csharp">C#</button>
+        <button data-td="powerfx">Power Fx Type</button>
+        <button data-td="go">Go</button>
+        <button data-td="python">Python</button>
+        <button data-td="rust">Rust</button>
+        <button data-td="sql">SQL DDL</button>
+      </div>
+      <div class="modal-body" id="typeDefBody"></div>
+      <div class="modal-footer"><button class="primary" id="typeDefCopy">Copy to Clipboard</button></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  
+
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script>lucide.createIcons({attrs: {width: 14, height: 14, 'stroke-width': 1.5}});</script>
+
+  <!-- Scripts loaded in dependency order -->
+  <script src="src/utils/primitives.js"></script>
+  <script src="src/utils/traverse.js"></script>
+  <script src="src/utils/storage.js"></script>
+  <script src="src/utils/undo-stack.js"></script>
+  <script src="src/utils/dom.js"></script>
+  <script src="src/utils/json-utils.js"></script>
+  <script src="src/utils/data-mask.js"></script>
+  <script src="src/utils/code-gen.js"></script>
+  <script src="src/utils/path.js"></script>
+  <script src="src/utils/lib-loader.js"></script>
+  <script src="src/utils/mock-gen.js"></script>
+  <script src="src/utils/format-convert.js"></script>
+  <script src="src/ui/stats-panel.js"></script>
+  <script src="src/expressions/power-platform.js"></script>
+  <script src="src/expressions/helpers.js"></script>
+  <script src="src/expressions/schema-gen.js"></script>
+  <script src="src/ui/graph-view.js"></script>
+  <script src="src/ui/content-preview.js"></script>
+  <script src="src/ui/json-view.js"></script>
+  <script src="src/ui/views.js"></script>
+  <script src="src/ui/table-filter.js"></script>
+  <script src="src/ui/simple-table.js"></script>
+  <script src="src/ui/help-modal.js"></script>
+  <script src="src/ui/autocomplete.js"></script>
+  <script src="src/ui/universal-filter.js"></script>
+  <script src="src/utils/transform-ops.js"></script>
+  <script src="src/ui/transform-panel.js"></script>
+  <script src="src/ui/validator.js"></script>
+  <script src="src/ui/shortcuts-overlay.js"></script>
+  <script src="src/ui/command-palette.js"></script>
+  <script src="src/ui/data-viz.js"></script>
+  <script src="src/ui/data-profiler.js"></script>
+  <script src="src/ui/minimap.js"></script>
+  <script src="src/ui/pivot-table.js"></script>
+  <script src="src/ui/multi-tab.js"></script>
+  <script src="src/ui/snippet-library.js"></script>
+  <script src="src/ui/toolbar-pin.js"></script>
+  <script src="src/ui/workspace-export.js"></script>
+  <script src="src/ui/search.js"></script>
+  <script src="src/ui/json-editor.js"></script>
+  <script src="src/ui/null-finder.js"></script>
+  <script src="src/ui/type-def-modal.js"></script>
+  <script src="src/ui/zoom.js"></script>
+  <script src="src/ui/panel-resizer.js"></script>
+  <script src="src/ui/input-handler.js"></script>
+  <script src="src/ui/command-registry.js"></script>
+  <script src="src/ui/shortcuts-handler.js"></script>
+  <script src="src/ui/toolbar-actions.js"></script>
+  <script src="src/app.js"></script>
+</body>
+</html>

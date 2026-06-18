@@ -1,0 +1,38 @@
+{
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users",
+    "@odata.nextLink": "https://graph.microsoft.com/v1.0/users?$skip=10",
+    "@odata.count": 100,
+    "value": [
+        {
+            "@odata.type": "#microsoft.graph.user",
+            "id": "123",
+            "displayName": "John Doe",
+            "mail@example": "john@corp.com",
+            "$select": [
+                "id",
+                "displayName"
+            ],
+            "address/city": "Seattle",
+            "name.first": "John",
+            "tags[0]": "admin",
+            "key with spaces": "value",
+            "#ref": {
+                "$id": "1",
+                "$values": [
+                    1,
+                    2,
+                    3
+                ]
+            },
+            "nested.dotted.key": {
+                "another.dot": {
+                    "deep.er": "found it"
+                }
+            }
+        }
+    ],
+    "$metadata": {
+        "$schema": "v4",
+        "@id": "/api/v1"
+    }
+}
