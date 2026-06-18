@@ -365,18 +365,20 @@ window.App.universalFilter = (() => {
       regex = new RegExp(escaped, 'i');
     } catch { resetDisplay(); return; }
 
-    const lines = view.getElementsByClassName('j-line');
-    let shown = 0, total = 0;
-    for (let i = 0; i < lines.length; i++) {
-      const el = lines[i];
-      const path = el.querySelector('[data-path]')?.getAttribute('data-path') || '';
-      total++;
-      if (regex.test(path)) { el.classList.remove('filter-hidden'); shown++; }
-      else el.classList.add('filter-hidden');
+    // Store filter at data level so chunks apply it on load/rehydrate
+    if (window.App.jsonView?.setHighlightByRegex) {
+      window.App.jsonView.setHighlightByRegex(regex);
     }
+
+    // Count from data if available
     const jsonData = getJsonData();
-    const dataTotal = Array.isArray(jsonData) ? jsonData.length : total;
-    $('treeFilterInfo').textContent = `${shown.toLocaleString()} / ${dataTotal.toLocaleString()} matched`;
+    const dataTotal = Array.isArray(jsonData) ? jsonData.length : 0;
+    const lines = view.getElementsByClassName('j-line');
+    let shown = 0;
+    for (let i = 0; i < lines.length; i++) {
+      if (!lines[i].classList.contains('filter-hidden')) shown++;
+    }
+    $('treeFilterInfo').textContent = `${shown.toLocaleString()} / ${(dataTotal || shown).toLocaleString()} matched`;
     $('ufResults').style.display = 'none';
     active = true;
   }
@@ -396,11 +398,7 @@ window.App.universalFilter = (() => {
 
       if (result.length === 0) {
         $('treeFilterInfo').textContent = '0 matches';
-        const view0 = $('jsonView');
-        if (view0) {
-          view0.querySelectorAll('.filter-hidden').forEach(el => el.classList.remove('filter-hidden'));
-          view0.querySelectorAll('.filter-match').forEach(el => el.classList.remove('filter-match'));
-        }
+        if (window.App.jsonView?.clearHighlight) window.App.jsonView.clearHighlight();
         active = false;
         return;
       }
@@ -413,26 +411,7 @@ window.App.universalFilter = (() => {
       }
 
       if (!isTableView()) {
-        const view = $('jsonView');
-        if (view) {
-          const lines = view.getElementsByClassName('j-line');
-          for (let i = 0; i < lines.length; i++) {
-            const el = lines[i];
-            const dp = el.querySelector('[data-path]')?.getAttribute('data-path') || '';
-            let match = matchedPaths.has('');
-            for (const mp of matchedPaths) {
-              if (mp && (dp === mp || dp.startsWith(mp + '.') || dp.startsWith(mp + '['))) { match = true; break; }
-            }
-            if (match) {
-              el.classList.remove('filter-hidden');
-              if (matchedPaths.has(dp)) {
-                el.querySelectorAll('.j-str, .j-num, .j-bool, .j-null').forEach(vs => vs.classList.add('filter-match'));
-              }
-            } else {
-              el.classList.add('filter-hidden');
-            }
-          }
-        }
+        window.App.jsonView.setHighlight(matchedPaths);
       }
 
       // Data-level count for info
@@ -543,11 +522,7 @@ window.App.universalFilter = (() => {
 
   // --- Reset ---
   function resetDisplay() {
-    const view = $('jsonView');
-    if (view) {
-      view.querySelectorAll('.filter-hidden').forEach(el => el.classList.remove('filter-hidden'));
-      view.querySelectorAll('.filter-match').forEach(el => el.classList.remove('filter-match'));
-    }
+    if (window.App.jsonView?.clearHighlight) window.App.jsonView.clearHighlight();
     resetTableFilter();
     $('treeFilterInfo').textContent = '';
     $('treeFilterInfo').className = 'tree-filter-info';

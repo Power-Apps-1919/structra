@@ -18,6 +18,10 @@ window.App.jsonView = (() => {
   let onContextMenuCb = null;
   let chunkId = 0;
 
+  // --- Data-level filter state (survives chunk recycle/rehydrate) ---
+  let _filterMatchedPaths = null;   // Set<string> of matched data-paths, or null (no filter)
+  let _filterPathRegex = null;      // RegExp for path-based filter, or null
+
   function render(jsonData, onPathSelect, onContextMenu) {
     lineCounter = 0;
     fileLine = 0;
@@ -124,6 +128,7 @@ window.App.jsonView = (() => {
     chunk.innerHTML = lines.join('');
     chunk.style.height = '';
     delete chunk.dataset.recycled;
+    applyFilterToContainer(chunk);
   }
 
   function buildChunkLines(arr, path, indent, start, end, total, startLine) {
@@ -181,6 +186,7 @@ window.App.jsonView = (() => {
 
     const lines = buildChunkLines(actualArr, path, indent, start, end, total, startLine);
     chunk.innerHTML = lines.join('');
+    applyFilterToContainer(chunk);
 
     // Calculate next chunk's start line
     let nextStartLine = startLine;
@@ -671,5 +677,67 @@ window.App.jsonView = (() => {
     lineCounter = savedLine; fileLine = savedFile; chunkId = savedChunk;
   }
 
-  return { render, renderInto, expandAll, collapseAll, collapseToDepth, highlightPath, updateBookmarkHighlights, highlightKeyByName, expandParents };
+  // --- Filter state management (persists across chunk recycle/rehydrate) ---
+
+  /** Apply current filter state to lines inside a container (chunk or full view) */
+  function applyFilterToContainer(container) {
+    if (!_filterMatchedPaths && !_filterPathRegex) return;
+    const lines = container.getElementsByClassName('j-line');
+    for (let i = 0; i < lines.length; i++) {
+      const el = lines[i];
+      if (el.classList.contains('j-lazy-sentinel')) continue;
+      const dp = el.getAttribute('data-path') || el.querySelector('[data-path]')?.getAttribute('data-path') || '';
+
+      if (_filterPathRegex) {
+        // Path regex mode
+        if (_filterPathRegex.test(dp)) { el.classList.remove('filter-hidden'); }
+        else { el.classList.add('filter-hidden'); }
+      } else if (_filterMatchedPaths) {
+        // JSONPath matched-paths mode
+        let match = _filterMatchedPaths.has('');
+        if (!match) {
+          for (const mp of _filterMatchedPaths) {
+            if (mp && (dp === mp || dp.startsWith(mp + '.') || dp.startsWith(mp + '['))) { match = true; break; }
+          }
+        }
+        if (match) {
+          el.classList.remove('filter-hidden');
+          if (_filterMatchedPaths.has(dp)) {
+            el.querySelectorAll('.j-str, .j-num, .j-bool, .j-null').forEach(vs => vs.classList.add('filter-match'));
+          }
+        } else {
+          el.classList.add('filter-hidden');
+        }
+      }
+    }
+  }
+
+  /** Set filter highlight state with matched paths — persists across chunk recycle/rehydrate */
+  function setHighlight(matchedPaths) {
+    _filterMatchedPaths = matchedPaths;
+    _filterPathRegex = null;
+    const view = $('jsonView');
+    if (view) applyFilterToContainer(view);
+  }
+
+  /** Set filter highlight state with path regex — persists across chunk recycle/rehydrate */
+  function setHighlightByRegex(regex) {
+    _filterPathRegex = regex;
+    _filterMatchedPaths = null;
+    const view = $('jsonView');
+    if (view) applyFilterToContainer(view);
+  }
+
+  /** Clear filter state */
+  function clearHighlight() {
+    _filterMatchedPaths = null;
+    _filterPathRegex = null;
+    const view = $('jsonView');
+    if (view) {
+      view.querySelectorAll('.filter-hidden').forEach(el => el.classList.remove('filter-hidden'));
+      view.querySelectorAll('.filter-match').forEach(el => el.classList.remove('filter-match'));
+    }
+  }
+
+  return { render, renderInto, expandAll, collapseAll, collapseToDepth, highlightPath, updateBookmarkHighlights, highlightKeyByName, expandParents, setHighlight, clearHighlight, setHighlightByRegex };
 })();
