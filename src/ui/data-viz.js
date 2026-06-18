@@ -57,9 +57,8 @@ window.App.dataViz = (() => {
     const lines = document.querySelectorAll('[data-path]');
     for (const el of lines) {
       el.style.background = '';
-      const badge = el.querySelector('.size-badge');
-      if (badge) badge.remove();
     }
+    document.querySelectorAll('.size-badge').forEach(b => b.remove());
     heatmapActive = false;
   }
 
