@@ -685,7 +685,10 @@ window.App.jsonView = (() => {
     const lines = container.getElementsByClassName('j-line');
     for (let i = 0; i < lines.length; i++) {
       const el = lines[i];
-      if (el.classList.contains('j-lazy-sentinel')) continue;
+      if (el.classList.contains('j-lazy-sentinel')) {
+        el.classList.add('filter-hidden');
+        continue;
+      }
       const dp = el.getAttribute('data-path') || el.querySelector('[data-path]')?.getAttribute('data-path') || '';
 
       if (_filterPathRegex) {
