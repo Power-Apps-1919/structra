@@ -142,10 +142,22 @@ window.App.simpleTable = (() => {
     });
   }
 
+  /* ---- Virtual-scroll constants ---- */
+  const ROW_HEIGHT = 28; // px per row (matches CSS: 10px font + 4px*2 padding + 1px border ≈ 28)
+  const BUFFER = 20;     // extra rows above/below viewport
+
+  let _cachedRows = null;    // cached sorted+filtered data
+  let _scrollEl = null;      // scroll container ref
+  let _tbodyEl = null;       // tbody ref
+  let _lastStart = -1;       // last rendered window start
+  let _lastEnd = -1;         // last rendered window end
+  let _cols = [];             // current visible columns (cached for renderWindow)
+
   function buildTable() {
     const container = $('simpleTableView');
-    const cols = visibleCols();
-    const rows = getSortedData();
+    _cols = visibleCols();
+    _cachedRows = getSortedData();
+    const rows = _cachedRows;
 
     let html = '<div class="st-toolbar">';
     // Array selector (only when multiple arrays exist)
@@ -160,7 +172,7 @@ window.App.simpleTable = (() => {
     }
     html += '<div class="st-search-wrap"><input class="st-search" id="stSearch" type="text" placeholder="Search table... (use * or ? for wildcards)" value="' + esc(searchTerm) + '"></div>';
     const filterCount = Object.keys(filters).length;
-    html += `<span class="st-info">${rows.length}${searchTerm || filterCount ? ' / ' + currentData.length : ''} rows × ${cols.length} columns`;
+    html += `<span class="st-info">${rows.length}${searchTerm || filterCount ? ' / ' + currentData.length : ''} rows × ${_cols.length} columns`;
     if (dateColumns.size > 0) html += ` · ${dateColumns.size} date col${dateColumns.size > 1 ? 's' : ''}`;
     html += `</span>`;
     if (filterCount > 0) html += `<button class="st-btn st-btn-warn" id="stClearFilters">Clear Filters (${filterCount})</button>`;
@@ -169,44 +181,108 @@ window.App.simpleTable = (() => {
     html += `<button class="st-btn" id="stExportCsv">CSV</button>`;
     html += '</div>';
 
-    html += '<div class="st-scroll"><table class="st-table"><thead><tr>';
+    html += '<div class="st-scroll" id="stScroll"><table class="st-table"><thead><tr>';
     html += '<th class="st-th-idx">#</th>';
-    for (const col of cols) {
+    for (const col of _cols) {
       const sortIcon = sortKey === col ? (sortDir === 1 ? ' ▲' : ' ▼') : '';
       const filterIcon = filters[col] ? ' <span class="st-filter-icon">⏷</span>' : '';
       const dateIcon = dateColumns.has(col) ? ' <span class="st-date-icon">📅</span>' : '';
       html += `<th data-col="${esc(col)}">${esc(col)}${sortIcon}${filterIcon}${dateIcon}</th>`;
     }
-    html += '</tr></thead><tbody>';
+    html += '</tr></thead><tbody id="stBody"></tbody></table>';
+    html += '</div>';
+    container.innerHTML = html;
 
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      html += `<tr data-idx="${i}"><td class="st-td-idx">${i}</td>`;
+    _scrollEl = container.querySelector('#stScroll');
+    _tbodyEl = container.querySelector('#stBody');
+    _lastStart = -1;
+    _lastEnd = -1;
+
+    // Initial render of visible window
+    renderWindow();
+
+    // Scroll handler
+    _scrollEl.addEventListener('scroll', onScroll, { passive: true });
+
+    // Bind toolbar/header events
+    bindEvents(container);
+  }
+
+  let _scrollRAF = 0;
+  function onScroll() {
+    if (_scrollRAF) return;
+    _scrollRAF = requestAnimationFrame(() => {
+      _scrollRAF = 0;
+      renderWindow();
+    });
+  }
+
+  function renderWindow() {
+    if (!_scrollEl || !_tbodyEl || !_cachedRows) return;
+    const scrollTop = _scrollEl.scrollTop;
+    const viewH = _scrollEl.clientHeight;
+    const totalRows = _cachedRows.length;
+
+    let start = Math.floor(scrollTop / ROW_HEIGHT) - BUFFER;
+    let end = Math.ceil((scrollTop + viewH) / ROW_HEIGHT) + BUFFER;
+    if (start < 0) start = 0;
+    if (end > totalRows) end = totalRows;
+
+    // Skip re-render if window unchanged
+    if (start === _lastStart && end === _lastEnd) return;
+    _lastStart = start;
+    _lastEnd = end;
+
+    const cols = _cols;
+    const colCount = cols.length + 1; // +1 for index column
+    const parts = [];
+
+    // Top spacer row
+    const padTop = start * ROW_HEIGHT;
+    if (padTop > 0) {
+      parts.push(`<tr class="st-spacer"><td colspan="${colCount}" style="height:${padTop}px"></td></tr>`);
+    }
+
+    for (let i = start; i < end; i++) {
+      const row = _cachedRows[i];
+      parts.push(`<tr data-idx="${i}"><td class="st-td-idx">${i}</td>`);
       for (const col of cols) {
         const val = row[col];
         let display;
-        if (val === null) display = '<span class="st-null">null</span>';
+        if (val === null || val === undefined) display = '<span class="st-null">null</span>';
         else if (typeof val === 'object') display = esc(JSON.stringify(val));
         else if (dateColumns.has(col)) {
           const d = parseDate(val);
           display = d ? `<span class="st-date">${esc(d.toLocaleDateString())} <span class="st-time">${esc(d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}))}</span></span>` : esc(String(val));
         }
         else display = esc(String(val));
-        // Highlight search match
         if (searchTerm && !searchTerm.includes('*') && !searchTerm.includes('?') && display.toLowerCase().includes(searchTerm.toLowerCase())) {
           const idx = display.toLowerCase().indexOf(searchTerm.toLowerCase());
           display = display.slice(0, idx) + '<mark class="st-highlight">' + display.slice(idx, idx + searchTerm.length) + '</mark>' + display.slice(idx + searchTerm.length);
         }
-        html += `<td title="${esc(String(val ?? ''))}">${display}</td>`;
+        parts.push(`<td title="${esc(String(val ?? ''))}">${display}</td>`);
       }
-      html += '</tr>';
+      parts.push('</tr>');
     }
 
-    html += '</tbody></table></div>';
-    container.innerHTML = html;
+    // Bottom spacer row
+    const padBottom = (totalRows - end) * ROW_HEIGHT;
+    if (padBottom > 0) {
+      parts.push(`<tr class="st-spacer"><td colspan="${colCount}" style="height:${padBottom}px"></td></tr>`);
+    }
 
-    // Bind events
-    bindEvents(container);
+    _tbodyEl.innerHTML = parts.join('');
+
+    // Bind row click on visible rows (event delegation)
+    _tbodyEl.querySelectorAll('tr[data-idx]').forEach(tr => {
+      tr.addEventListener('click', () => {
+        const idx = tr.dataset.idx;
+        const path = basePath === '(root)' ? `[${idx}]` : `${basePath}[${idx}]`;
+        if (onSelectCb) onSelectCb(path);
+        _tbodyEl.querySelectorAll('tr.st-selected').forEach(r => r.classList.remove('st-selected'));
+        tr.classList.add('st-selected');
+      });
+    });
   }
 
   function bindEvents(container) {
@@ -255,17 +331,7 @@ window.App.simpleTable = (() => {
       });
     });
 
-    // Row click → select path
-    container.querySelectorAll('tbody tr').forEach(tr => {
-      tr.addEventListener('click', () => {
-        const idx = tr.dataset.idx;
-        const path = basePath === '(root)' ? `[${idx}]` : `${basePath}[${idx}]`;
-        if (onSelectCb) onSelectCb(path);
-        // Highlight selected row
-        container.querySelectorAll('tr.st-selected').forEach(r => r.classList.remove('st-selected'));
-        tr.classList.add('st-selected');
-      });
-    });
+    // Row click is handled by renderWindow() virtual scroll
 
     // Show All button
     const showAllBtn = container.querySelector('#stShowAll');
