@@ -21,6 +21,10 @@ window.App.simpleTable = (() => {
   let dateColumns = new Set(); // auto-detected date columns
   let availableArrays = []; // all discovered arrays for selector
 
+  // --- Advanced filter highlight state ---
+  let _highlightRows = null;   // Set of row indices to highlight, or null (no filter)
+  let _highlightCols = null;   // Set of column names to highlight, or null
+
   // --- Global search (supports wildcards with * and ?) ---
   function matchesSearch(row, term) {
     if (!term) return true;
@@ -212,7 +216,8 @@ window.App.simpleTable = (() => {
       const sortIcon = sortKey === col ? (sortDir === 1 ? ' ▲' : ' ▼') : '';
       const filterIcon = filters[col] ? ' <span class="st-filter-icon">⏷</span>' : '';
       const dateIcon = dateColumns.has(col) ? ' <span class="st-date-icon">📅</span>' : '';
-      html += `<th data-col="${esc(col)}">${esc(col)}${sortIcon}${filterIcon}${dateIcon}</th>`;
+      const colMatch = _highlightCols?.has(col) ? ' uf-col-match' : '';
+      html += `<th data-col="${esc(col)}" class="${colMatch}">${esc(col)}${sortIcon}${filterIcon}${dateIcon}</th>`;
     }
     html += '</tr></thead></table></div>';
     container.innerHTML = html;
@@ -253,10 +258,14 @@ window.App.simpleTable = (() => {
   function fillChunk(chunk, start, end) {
     const cols = _cols;
     const rows = _cachedRows;
+    const hasRowFilter = _highlightRows !== null;
+    const hasColFilter = _highlightCols !== null;
     const parts = [];
     for (let i = start; i < end; i++) {
       const row = rows[i];
-      parts.push(`<tr data-idx="${i}"><td class="st-td-idx">${i}</td>`);
+      const rowMatch = !hasRowFilter || _highlightRows.has(i);
+      const trClass = hasRowFilter && !rowMatch ? ' class="uf-row-hidden"' : '';
+      parts.push(`<tr data-idx="${i}"${trClass}><td class="st-td-idx">${i}</td>`);
       for (const col of cols) {
         const val = row[col];
         let display;
@@ -271,7 +280,8 @@ window.App.simpleTable = (() => {
           const idx = display.toLowerCase().indexOf(searchTerm.toLowerCase());
           display = display.slice(0, idx) + '<mark class="st-highlight">' + display.slice(idx, idx + searchTerm.length) + '</mark>' + display.slice(idx + searchTerm.length);
         }
-        parts.push(`<td title="${esc(String(val ?? ''))}">${display}</td>`);
+        const cellClass = (rowMatch && hasColFilter && _highlightCols.has(col)) ? ' class="uf-table-match"' : '';
+        parts.push(`<td${cellClass} title="${esc(String(val ?? ''))}">${display}</td>`);
       }
       parts.push('</tr>');
     }
@@ -627,5 +637,38 @@ window.App.simpleTable = (() => {
     availableArrays = arrays;
   }
 
-  return { render, setArrays, getData: () => currentData, getColumns: () => columnOrder.filter(c => !hiddenCols.has(c)), isVisible: () => $('simpleTableView')?.classList.contains('show') };
+  /* Set highlight state for advanced filter (called from universal-filter.js) */
+  function setHighlight(matchedRowIndices, matchedColNames) {
+    _highlightRows = matchedRowIndices; // Set<number> or null
+    _highlightCols = matchedColNames;   // Set<string> or null
+    // Re-render all active chunks with new highlight state
+    if (_tbodyEl) {
+      _tbodyEl.querySelectorAll('.st-chunk').forEach(chunk => {
+        const start = parseInt(chunk.dataset.start, 10);
+        const end = parseInt(chunk.dataset.end, 10);
+        if (chunk.dataset.recycled === '1') return; // skip recycled, they'll pick up state on rehydrate
+        fillChunk(chunk, start, end);
+      });
+      // Also update column header highlights
+      _tbodyEl.querySelectorAll('th[data-col]').forEach(th => {
+        th.classList.toggle('uf-col-match', !!_highlightCols?.has(th.dataset.col));
+      });
+    }
+  }
+
+  function clearHighlight() {
+    _highlightRows = null;
+    _highlightCols = null;
+    if (_tbodyEl) {
+      _tbodyEl.querySelectorAll('.st-chunk').forEach(chunk => {
+        if (chunk.dataset.recycled === '1') return;
+        const start = parseInt(chunk.dataset.start, 10);
+        const end = parseInt(chunk.dataset.end, 10);
+        fillChunk(chunk, start, end);
+      });
+      _tbodyEl.querySelectorAll('th.uf-col-match').forEach(th => th.classList.remove('uf-col-match'));
+    }
+  }
+
+  return { render, setArrays, setHighlight, clearHighlight, getData: () => currentData, getColumns: () => columnOrder.filter(c => !hiddenCols.has(c)), isVisible: () => $('simpleTableView')?.classList.contains('show') };
 })();

@@ -205,82 +205,66 @@ window.App.universalFilter = (() => {
     return window.App.simpleTable?.isVisible?.();
   }
 
-  function getTableParts() {
-    const view = $('simpleTableView');
-    if (!view) return null;
-    const table = view.querySelector('.st-table');
-    if (!table) return null;
-    const headers = Array.from(table.querySelectorAll('th[data-col]')).map(th => th.dataset.col);
-    const rows = Array.from(table.querySelectorAll('tbody tr'));
-    return { table, headers, rows };
+  function getTableColumns() {
+    return window.App.simpleTable?.getColumns?.() || [];
+  }
+
+  function getTableData() {
+    return window.App.simpleTable?.getData?.() || [];
   }
 
   function resetTableFilter() {
-    const parts = getTableParts();
-    if (!parts) return;
-    parts.rows.forEach(tr => tr.style.display = '');
-    parts.table.querySelectorAll('.uf-table-match').forEach(el => el.classList.remove('uf-table-match'));
-    // Reset column highlights
-    parts.table.querySelectorAll('.uf-col-match').forEach(el => el.classList.remove('uf-col-match'));
+    window.App.simpleTable?.clearHighlight?.();
   }
 
   function filterTableByPath(pattern) {
-    const parts = getTableParts();
-    if (!parts) { resetDisplay(); return; }
+    const cols = getTableColumns();
+    const data = getTableData();
+    if (!cols.length || !data.length) { resetDisplay(); return; }
+
     let regex;
     try {
       const escaped = pattern.toLowerCase().replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
       regex = new RegExp(escaped, 'i');
     } catch { resetDisplay(); return; }
 
-    // Match column names — highlight matching columns, show rows that have values in those columns
-    const matchedColIdx = [];
-    parts.headers.forEach((col, i) => {
-      if (regex.test(col)) matchedColIdx.push(i + 1); // +1 for index column offset
-    });
+    // Match column names
+    const matchedCols = new Set();
+    cols.forEach(col => { if (regex.test(col)) matchedCols.add(col); });
 
-    if (matchedColIdx.length === 0) {
-      // No columns match — try matching cell values like a text search
-      let shown = 0;
-      parts.rows.forEach(tr => {
-        const cells = tr.querySelectorAll('td');
-        let hit = false;
-        cells.forEach(td => {
-          if (regex.test(td.textContent)) { hit = true; td.classList.add('uf-table-match'); }
-        });
-        tr.style.display = hit ? '' : 'none';
-        if (hit) shown++;
-      });
-      $('treeFilterInfo').textContent = `${shown}/${parts.rows.length} rows`;
+    const matchedRows = new Set();
+    if (matchedCols.size === 0) {
+      // No columns match — search cell values
+      for (let i = 0; i < data.length; i++) {
+        const row = data[i];
+        for (const col of cols) {
+          const val = row[col];
+          if (val != null && regex.test(String(val))) { matchedRows.add(i); break; }
+        }
+      }
+      window.App.simpleTable.setHighlight(matchedRows, null);
+      $('treeFilterInfo').textContent = `${matchedRows.size}/${data.length} rows`;
     } else {
-      // Highlight matching column headers and cells
-      const ths = parts.table.querySelectorAll('th');
-      matchedColIdx.forEach(ci => { if (ths[ci]) ths[ci].classList.add('uf-col-match'); });
-
-      let shown = 0;
-      parts.rows.forEach(tr => {
-        const cells = tr.querySelectorAll('td');
-        let hasVal = false;
-        matchedColIdx.forEach(ci => {
-          const td = cells[ci];
-          if (td) {
-            td.classList.add('uf-table-match');
-            const v = td.textContent.trim();
-            if (v && v !== 'null' && v !== '') hasVal = true;
-          }
-        });
-        tr.style.display = hasVal ? '' : 'none';
-        if (hasVal) shown++;
-      });
-      $('treeFilterInfo').textContent = `${matchedColIdx.length} col${matchedColIdx.length > 1 ? 's' : ''} · ${shown}/${parts.rows.length} rows`;
+      // Highlight matching columns, show rows with values in those columns
+      for (let i = 0; i < data.length; i++) {
+        const row = data[i];
+        for (const col of matchedCols) {
+          const v = row[col];
+          if (v != null && v !== '' && String(v) !== 'null') { matchedRows.add(i); break; }
+        }
+      }
+      window.App.simpleTable.setHighlight(matchedRows, matchedCols);
+      $('treeFilterInfo').textContent = `${matchedCols.size} col${matchedCols.size > 1 ? 's' : ''} · ${matchedRows.size}/${data.length} rows`;
     }
     $('ufResults').style.display = 'none';
     active = true;
   }
 
   function filterTableByRegex(raw) {
-    const parts = getTableParts();
-    if (!parts) return;
+    const cols = getTableColumns();
+    const data = getTableData();
+    if (!cols.length) return;
+
     const m = raw.match(/^\/(.+)\/([gimsuy]*)$/);
     let regex;
     try {
@@ -291,78 +275,70 @@ window.App.universalFilter = (() => {
       return;
     }
 
-    // Match headers
-    const ths = parts.table.querySelectorAll('th');
-    const matchedColIdx = [];
-    parts.headers.forEach((col, i) => {
-      if (regex.test(col)) { ths[i + 1]?.classList.add('uf-col-match'); matchedColIdx.push(i + 1); }
-    });
+    // Match column names
+    const matchedCols = new Set();
+    cols.forEach(col => { if (regex.test(col)) matchedCols.add(col); });
 
-    // Match cell values + any column-matched cells
-    let shown = 0;
-    parts.rows.forEach(tr => {
-      const cells = tr.querySelectorAll('td');
+    // Match cell values
+    const matchedRows = new Set();
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
       let hit = false;
-      cells.forEach(td => {
-        const txt = td.textContent.replace(/^"|"$/g, '');
-        if (regex.test(txt)) { hit = true; td.classList.add('uf-table-match'); }
-      });
-      // If regex matched column names, highlight those cells and show the row
-      if (!hit && matchedColIdx.length > 0) {
-        matchedColIdx.forEach(ci => { if (cells[ci]) { cells[ci].classList.add('uf-table-match'); hit = true; } });
+      for (const col of cols) {
+        const val = row[col];
+        if (val != null && regex.test(String(val))) { hit = true; break; }
       }
-      tr.style.display = hit ? '' : 'none';
-      if (hit) shown++;
-    });
-    $('treeFilterInfo').textContent = `${shown}/${parts.rows.length} rows matched`;
+      if (!hit && matchedCols.size > 0) hit = true; // column name matched
+      if (hit) matchedRows.add(i);
+    }
+
+    window.App.simpleTable.setHighlight(matchedRows, matchedCols.size > 0 ? matchedCols : null);
+    $('treeFilterInfo').textContent = `${matchedRows.size}/${data.length} rows matched`;
     $('ufResults').style.display = 'none';
     active = true;
   }
 
   function filterTableByJsonPath(result) {
-    const parts = getTableParts();
-    if (!parts) return;
+    const data = getTableData();
+    if (!data.length) return;
+    const cols = getTableColumns();
+
     // Identify matching row indices from JSONPath result pointers
-    const matchedIndices = new Set();
+    const matchedRows = new Set();
+    const matchedCols = new Set();
     for (const r of result) {
       const ptr = typeof r.pointer === 'string' ? r.pointer : '';
-      // Pointer like /users/0/name → extract array index
       const idxMatch = ptr.match(/\/(\d+)/);
-      if (idxMatch) matchedIndices.add(parseInt(idxMatch[1]));
-    }
-    let shown = 0;
-    parts.rows.forEach((tr, i) => {
-      const match = matchedIndices.has(i);
-      tr.style.display = match ? '' : 'none';
-      if (match) {
-        shown++;
-        tr.querySelectorAll('td').forEach(td => td.classList.add('uf-table-match'));
+      if (idxMatch) matchedRows.add(parseInt(idxMatch[1]));
+      // Extract column name from pointer (e.g. /0/lastName → lastName)
+      const parts = ptr.split('/').filter(Boolean);
+      if (parts.length >= 2) {
+        const colName = parts[parts.length - 1];
+        if (cols.includes(colName)) matchedCols.add(colName);
       }
-    });
-    $('treeFilterInfo').textContent = `${result.length} match${result.length !== 1 ? 'es' : ''} · ${shown}/${parts.rows.length} rows`;
+    }
+
+    window.App.simpleTable.setHighlight(matchedRows, matchedCols.size > 0 ? matchedCols : null);
+    $('treeFilterInfo').textContent = `${result.length} match${result.length !== 1 ? 'es' : ''} · ${matchedRows.size}/${data.length} rows`;
     active = true;
   }
 
   function filterTableByJs(result) {
-    const parts = getTableParts();
-    if (!parts) return;
-    // If result is an array, try to match rows by checking if row data is in result
-    if (!Array.isArray(result)) return; // non-array results shown in ufResults panel
-    const data = window.App.simpleTable.getData?.();
-    if (!data) return;
-    let shown = 0;
-    parts.rows.forEach((tr, i) => {
+    const data = getTableData();
+    if (!data.length) return;
+    if (!Array.isArray(result)) return;
+
+    const matchedRows = new Set();
+    for (let i = 0; i < data.length; i++) {
       const row = data[i];
-      const match = row && result.some(r => r === row || JSON.stringify(r) === JSON.stringify(row));
-      tr.style.display = match ? '' : 'none';
-      if (match) {
-        shown++;
-        tr.querySelectorAll('td').forEach(td => td.classList.add('uf-table-match'));
+      if (row && result.some(r => r === row || JSON.stringify(r) === JSON.stringify(row))) {
+        matchedRows.add(i);
       }
-    });
-    // Update info to include row count
+    }
+
+    window.App.simpleTable.setHighlight(matchedRows, null);
     const existing = $('treeFilterInfo').textContent;
-    $('treeFilterInfo').textContent = existing + ` · ${shown}/${parts.rows.length} rows`;
+    $('treeFilterInfo').textContent = existing + ` · ${matchedRows.size}/${data.length} rows`;
   }
 
   // --- Run ---

@@ -107,6 +107,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .filter-match{background:rgba(250,204,21,.35);border-radius:2px;outline:1px solid rgba(250,204,21,.6)}
 [data-theme="dark"] .filter-match{background:rgba(250,204,21,.2);outline-color:rgba(250,204,21,.4)}
 .uf-table-match{background:rgba(250,204,21,.25) !important}
+.uf-row-hidden{display:none}
 .uf-col-match{background:rgba(59,130,246,.15) !important;color:var(--primary) !important;font-weight:700}
 
 /* Universal Filter Results */
