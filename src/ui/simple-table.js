@@ -156,6 +156,26 @@ window.App.simpleTable = (() => {
   function cleanupObservers() {
     if (_loadObserver) { _loadObserver.disconnect(); _loadObserver = null; }
     if (_recycleObserver) { _recycleObserver.disconnect(); _recycleObserver = null; }
+    if (_scrollEl) { _scrollEl.removeEventListener('scroll', _onScrollFallback); }
+  }
+
+  /* Scroll fallback: eagerly load sentinel when within 2 viewports */
+  let _scrollRAF = 0;
+  function _onScrollFallback() {
+    if (_scrollRAF) return;
+    _scrollRAF = requestAnimationFrame(() => {
+      _scrollRAF = 0;
+      if (!_scrollEl) return;
+      const sentinel = _tbodyEl?.querySelector('.st-sentinel-wrap');
+      if (!sentinel) return;
+      const scrollBottom = _scrollEl.scrollTop + _scrollEl.clientHeight;
+      const sentinelTop = sentinel.offsetTop - _scrollEl.offsetTop;
+      // If sentinel is within 2 viewport heights, force load
+      if (sentinelTop - scrollBottom < _scrollEl.clientHeight * 2) {
+        _loadObserver?.unobserve(sentinel);
+        loadNextChunk(sentinel);
+      }
+    });
   }
 
   function buildTable() {
@@ -285,7 +305,7 @@ window.App.simpleTable = (() => {
 
   /* Setup IntersectionObservers for lazy-load and memory recycling */
   function setupObservers() {
-    // Load observer: triggers 600px before sentinel is visible
+    // Load observer: trigger well ahead of sentinel (must exceed chunk height ~5600px for 200 rows)
     _loadObserver = new IntersectionObserver((entries) => {
       for (const entry of entries) {
         if (!entry.isIntersecting) continue;
@@ -293,7 +313,10 @@ window.App.simpleTable = (() => {
         _loadObserver.unobserve(sentinel);
         loadNextChunk(sentinel);
       }
-    }, { root: _scrollEl, rootMargin: '600px' });
+    }, { root: _scrollEl, rootMargin: '6000px' });
+
+    // Scroll-based fallback: if sentinel is close to viewport, load eagerly
+    _scrollEl.addEventListener('scroll', _onScrollFallback, { passive: true });
 
     // Recycle observer: recycles chunks that are >OFFSCREEN_MARGIN away
     _recycleObserver = new IntersectionObserver((entries) => {
