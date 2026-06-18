@@ -258,7 +258,8 @@ window.App.inputHandler = (() => {
       // Auth
       const auth = authType.value;
       if (auth === 'bearer') {
-        const token = authFields.querySelector('[data-role="token"]')?.value.trim();
+        let token = authFields.querySelector('[data-role="token"]')?.value.trim() || '';
+        token = token.replace(/^bearer\s+/i, '');
         if (token) headers['Authorization'] = 'Bearer ' + token;
       } else if (auth === 'basic') {
         const user = authFields.querySelector('[data-role="user"]')?.value.trim() || '';
@@ -295,7 +296,38 @@ window.App.inputHandler = (() => {
       if (type === 'none') {
         authFields.innerHTML = '';
       } else if (type === 'bearer') {
-        authFields.innerHTML = '<input type="text" data-role="token" placeholder="Enter token...">';
+        authFields.innerHTML = '<input type="text" data-role="token" placeholder="Paste token (with or without Bearer prefix)">' +
+          '<button class="api-add-row api-decode-jwt" data-role="decode" type="button">Decode Token</button>' +
+          '<div class="api-jwt-claims" data-role="claims"></div>';
+        authFields.querySelector('[data-role="decode"]').addEventListener('click', () => {
+          let raw = authFields.querySelector('[data-role="token"]').value.trim().replace(/^bearer\s+/i, '');
+          const claimsEl = authFields.querySelector('[data-role="claims"]');
+          if (!raw) { claimsEl.innerHTML = '<div class="api-jwt-error">No token entered</div>'; return; }
+          try {
+            const parts = raw.split('.');
+            if (parts.length !== 3) throw new Error('Not a valid JWT (expected 3 parts, got ' + parts.length + ')');
+            const decodeB64 = s => { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; return JSON.parse(atob(s)); };
+            const header = decodeB64(parts[0]);
+            const payload = decodeB64(parts[1]);
+            let html = '<div class="api-jwt-header-bar"><span class="api-jwt-title">Decoded Token</span><button class="api-jwt-close" data-role="close-claims" type="button">\u2715</button></div>';
+            html += '<div class="api-jwt-section"><div class="api-jwt-section-header"><span class="api-jwt-label">Header</span><button class="api-jwt-copy" data-copy="header" type="button">Copy</button></div><pre class="api-jwt-json">' + escHtml(JSON.stringify(header, null, 2)) + '</pre></div>';
+            html += '<div class="api-jwt-section"><div class="api-jwt-section-header"><span class="api-jwt-label">Payload</span><button class="api-jwt-copy" data-copy="payload" type="button">Copy</button></div><pre class="api-jwt-json">' + escHtml(JSON.stringify(payload, null, 2)) + '</pre></div>';
+            if (payload.exp) { const d = new Date(payload.exp * 1000); const expired = d < new Date(); html += '<div class="api-jwt-meta">' + (expired ? '\u26d4 Expired' : '\u2705 Valid') + ' | Expires: ' + d.toLocaleString() + '</div>'; }
+            if (payload.iat) { html += '<div class="api-jwt-meta">Issued: ' + new Date(payload.iat * 1000).toLocaleString() + '</div>'; }
+            html += '<button class="api-add-row api-jwt-copy-all" data-copy="all" type="button">Copy Full Decoded Token</button>';
+            claimsEl.innerHTML = html;
+            claimsEl.querySelector('[data-role="close-claims"]').addEventListener('click', () => { claimsEl.innerHTML = ''; });
+            claimsEl.querySelectorAll('[data-copy]').forEach(btn => {
+              btn.addEventListener('click', () => {
+                let text;
+                if (btn.dataset.copy === 'header') text = JSON.stringify(header, null, 2);
+                else if (btn.dataset.copy === 'payload') text = JSON.stringify(payload, null, 2);
+                else text = JSON.stringify({ header, payload }, null, 2);
+                navigator.clipboard.writeText(text).then(() => { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = btn.dataset.copy === 'all' ? 'Copy Full Decoded Token' : 'Copy', 1500); });
+              });
+            });
+          } catch (e) { claimsEl.innerHTML = '<div class="api-jwt-error">' + escHtml(e.message) + '</div>'; }
+        });
       } else if (type === 'basic') {
         authFields.innerHTML =
           '<input type="text" data-role="user" placeholder="Username">' +
@@ -306,6 +338,8 @@ window.App.inputHandler = (() => {
           '<input type="text" data-role="keyval" placeholder="Key value">';
       }
     }
+
+    function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
     function addHeaderRow() {
       const row = document.createElement('div');
