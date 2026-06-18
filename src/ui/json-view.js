@@ -686,23 +686,19 @@ window.App.jsonView = (() => {
     for (let i = 0; i < lines.length; i++) {
       const el = lines[i];
       if (el.classList.contains('j-lazy-sentinel')) {
-        el.classList.add('filter-hidden');
+        // Don't use filter-hidden (display:none) — sentinel must stay in layout for IntersectionObserver
+        el.style.visibility = 'hidden';
+        el.style.height = '1px';
+        el.style.overflow = 'hidden';
         continue;
       }
-      const dp = el.getAttribute('data-path') || el.querySelector('[data-path]')?.getAttribute('data-path') || '';
+      const dp = el.getAttribute('data-path') || '';
 
       if (_filterPathRegex) {
-        // Path regex mode
         if (_filterPathRegex.test(dp)) { el.classList.remove('filter-hidden'); }
         else { el.classList.add('filter-hidden'); }
       } else if (_filterMatchedPaths) {
-        // JSONPath matched-paths mode
-        let match = _filterMatchedPaths.has('');
-        if (!match) {
-          for (const mp of _filterMatchedPaths) {
-            if (mp && (dp === mp || dp.startsWith(mp + '.') || dp.startsWith(mp + '['))) { match = true; break; }
-          }
-        }
+        const match = isAncestorMatched(dp);
         if (match) {
           el.classList.remove('filter-hidden');
           if (_filterMatchedPaths.has(dp)) {
@@ -713,6 +709,23 @@ window.App.jsonView = (() => {
         }
       }
     }
+  }
+
+  /** Check if dp or any ancestor is in _filterMatchedPaths — O(depth) not O(matchedPaths) */
+  function isAncestorMatched(dp) {
+    if (_filterMatchedPaths.has('')) return true;
+    if (_filterMatchedPaths.has(dp)) return true;
+    // Walk up the path: [0].address.street → [0].address → [0]
+    let p = dp;
+    while (p) {
+      const lastDot = p.lastIndexOf('.');
+      const lastBracket = p.lastIndexOf('[');
+      const cut = Math.max(lastDot, lastBracket);
+      if (cut <= 0) break;
+      p = p.substring(0, cut);
+      if (_filterMatchedPaths.has(p)) return true;
+    }
+    return false;
   }
 
   /** Set filter highlight state with matched paths — persists across chunk recycle/rehydrate */
@@ -739,6 +752,12 @@ window.App.jsonView = (() => {
     if (view) {
       view.querySelectorAll('.filter-hidden').forEach(el => el.classList.remove('filter-hidden'));
       view.querySelectorAll('.filter-match').forEach(el => el.classList.remove('filter-match'));
+      // Restore sentinel visibility
+      view.querySelectorAll('.j-lazy-sentinel').forEach(s => {
+        s.style.visibility = '';
+        s.style.height = '';
+        s.style.overflow = '';
+      });
     }
   }
 

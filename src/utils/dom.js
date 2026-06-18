@@ -52,5 +52,16 @@ window.App.dom = (() => {
     });
   }
 
-  return { $, toast, esc, escCode, copyAndToast, exprRow, delegate };
+  let _loadingCount = 0;
+  function showLoading(msg) {
+    _loadingCount++;
+    const el = $('gLoading');
+    if (el) { $('gLoadingMsg').textContent = msg || 'Loading\u2026'; el.classList.add('show'); }
+  }
+  function hideLoading() {
+    _loadingCount = Math.max(0, _loadingCount - 1);
+    if (_loadingCount === 0) { const el = $('gLoading'); if (el) el.classList.remove('show'); }
+  }
+
+  return { $, toast, esc, escCode, copyAndToast, exprRow, delegate, showLoading, hideLoading };
 })();

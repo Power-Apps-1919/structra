@@ -346,11 +346,22 @@ window.App.universalFilter = (() => {
     pushHistory(mode, raw);
     historyIndex = -1;
 
-    switch (mode) {
-      case 'path': filterByPath(raw); break;
-      case 'jsonpath': await filterByJsonPath(raw); break;
-      case 'regex': filterByRegex(raw); break;
-      case 'js': filterByJs(raw); break;
+    const { showLoading, hideLoading } = window.App.dom;
+    showLoading('Filtering\u2026');
+    $('treeFilterInfo').textContent = '';
+
+    // Yield to let spinner render before heavy work
+    await new Promise(r => setTimeout(r, 0));
+
+    try {
+      switch (mode) {
+        case 'path': filterByPath(raw); break;
+        case 'jsonpath': await filterByJsonPath(raw); break;
+        case 'regex': filterByRegex(raw); break;
+        case 'js': filterByJs(raw); break;
+      }
+    } finally {
+      hideLoading();
     }
   }
 

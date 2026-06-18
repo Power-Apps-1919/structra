@@ -4,7 +4,7 @@
  */
 window.App = window.App || {};
 window.App.toolbarActions = (() => {
-  const { $, toast, copyAndToast } = window.App.dom;
+  const { $, toast, copyAndToast, showLoading, hideLoading } = window.App.dom;
 
   function init(getState) {
     const state = getState; // () => { jsonData, rawJsonText, fileName, currentView, findAllArrays, ... }
@@ -118,28 +118,37 @@ window.App.toolbarActions = (() => {
     });
 
     // --- Size Heatmap ---
-    $('btnHeatmap').addEventListener('click', () => {
+    $('btnHeatmap').addEventListener('click', async () => {
       const { jsonData } = state();
       if (!jsonData) { toast('Load JSON first'); return; }
+      showLoading('Applying heatmap…');
+      await new Promise(r => setTimeout(r, 0));
       const isActive = window.App.sizeHeatmap.toggle(jsonData);
       $('btnHeatmap').classList.toggle('active', isActive);
       toast(isActive ? 'Heatmap on: bigger items appear in warmer colors' : 'Heatmap cleared');
+      hideLoading();
     });
 
     // --- Mini Charts ---
-    $('btnCharts').addEventListener('click', () => {
+    $('btnCharts').addEventListener('click', async () => {
       const { jsonData } = state();
       if (!jsonData) { toast('Load JSON first'); return; }
+      showLoading('Generating charts…');
+      await new Promise(r => setTimeout(r, 0));
       const isActive = window.App.miniCharts.toggle(jsonData);
       $('btnCharts').classList.toggle('active', isActive);
       toast(isActive ? 'Charts shown for numeric data' : 'Charts cleared');
+      hideLoading();
     });
 
     // --- Data Profiler ---
-    $('btnProfile').addEventListener('click', () => {
+    $('btnProfile').addEventListener('click', async () => {
       const { jsonData } = state();
       if (!jsonData) { toast('Load JSON first'); return; }
+      showLoading('Profiling data…');
+      await new Promise(r => setTimeout(r, 0));
       window.App.dataProfiler.showForData(jsonData);
+      hideLoading();
     });
 
     // --- Minimap ---

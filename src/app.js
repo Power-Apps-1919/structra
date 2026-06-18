@@ -4,7 +4,7 @@
  */
 window.App = window.App || {};
 (() => {
-  const { $, toast, esc, escCode, copyAndToast } = window.App.dom;
+  const { $, toast, esc, escCode, copyAndToast, showLoading, hideLoading } = window.App.dom;
   const { tokenizePath, resolvePath, buildPAPath, buildFxPathFull } = window.App.path;
   const { findAllArrays } = window.App.traverse;
   const { collectAllPaths, renderStats } = window.App.stats;
@@ -95,6 +95,7 @@ window.App = window.App || {};
   }
 
   async function startExplorer() {
+    showLoading('Rendering JSON…');
     $('inputOverlay').classList.add('hidden');
     pathHistory = []; historyIndex = -1; bookmarks = [];
     window.App._jsonDataRef = jsonData; // Expose for lazy tree rendering
@@ -132,6 +133,7 @@ window.App = window.App || {};
     // Yield before non-critical work (stats, helpers, schema)
     await yieldToMain();
 
+    $('gLoadingMsg').textContent = 'Calculating stats\u2026';
     renderStats(jsonData, evaluatePath);
     renderHelpers(jsonData);
     renderParseJsonSchema(jsonData);
@@ -155,6 +157,7 @@ window.App = window.App || {};
     if (window.App.universalFilter && !window.App.universalFilter.isActive()) {
       window.App.universalFilter.open();
     }
+    hideLoading();
   }
 
   function onPathSelect(path) {
@@ -518,14 +521,17 @@ window.App = window.App || {};
   window.App.panelResizer.init();
 
   // Table view
-  $('btnTable').addEventListener('click', () => {
+  $('btnTable').addEventListener('click', async () => {
     if (currentView === 'table') { switchView('json'); return; }
     const arrays = findAllArrays(jsonData);
     const mainArr = arrays.find(a => a.data.length > 0 && typeof a.data[0] === 'object');
     if (!mainArr) { toast('No table data found in this JSON'); return; }
+    showLoading('Building table…');
     switchView('table');
     window.App.simpleTable.setArrays(arrays);
+    await new Promise(r => setTimeout(r, 0));
     window.App.simpleTable.render(mainArr.data, mainArr.path, onPathSelect);
+    hideLoading();
   });
 
   // Schema view
@@ -536,11 +542,14 @@ window.App = window.App || {};
   });
 
   // Graph view
-  $('btnGraph').addEventListener('click', () => {
+  $('btnGraph').addEventListener('click', async () => {
     if (!jsonData) { toast('Load JSON first'); return; }
     if (currentView === 'graph') { switchView('json'); return; }
+    showLoading('Building graph…');
     switchView('graph');
+    await new Promise(r => setTimeout(r, 0));
     window.App.graphView.render(jsonData, $('graphView'));
+    hideLoading();
   });
 
   // Mock Data Generator (from context menu)
