@@ -425,9 +425,14 @@ window.App.universalFilter = (() => {
         window.App.jsonView.setHighlight(matchedPaths);
       }
 
-      // Data-level count for info
+      // Data-level count: unique top-level records that contain a match
       const dataTotal = Array.isArray(jsonData) ? jsonData.length : Object.keys(jsonData).length;
-      $('treeFilterInfo').textContent = `${result.length.toLocaleString()} / ${dataTotal.toLocaleString()} matched`;
+      const topKeys = new Set();
+      for (const ptr of result) {
+        const seg = ptr.indexOf('/', 1);
+        topKeys.add(seg === -1 ? ptr.slice(1) : ptr.slice(1, seg));
+      }
+      $('treeFilterInfo').textContent = `${topKeys.size.toLocaleString()} / ${dataTotal.toLocaleString()} rows matched (${result.length.toLocaleString()} nodes)`;
       if (isTableView()) filterTableByJsonPath(result);
       active = true;
     } catch (err) {
