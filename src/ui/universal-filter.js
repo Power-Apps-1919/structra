@@ -382,70 +382,10 @@ window.App.universalFilter = (() => {
   }
 
   // --- JSONPath filter ---
-  // --- Fast path for simple $.[*].key or $.key expressions ---
-  function tryFastJsonPath(expr, jsonData) {
-    // Match patterns like $.[*].key, $[*].key, $.key, $..key
-    const m = expr.match(/^\$\.?\[?\*?\]?\.(\w+)$/);
-    if (!m) return null;
-    const key = m[1];
-    if (Array.isArray(jsonData)) {
-      // $.[*].key on an array — scan directly
-      const matchedRows = new Set();
-      const matchedCols = new Set([key]);
-      for (let i = 0; i < jsonData.length; i++) {
-        const row = jsonData[i];
-        if (row && typeof row === 'object' && key in row) matchedRows.add(i);
-      }
-      return { matchCount: matchedRows.size, total: jsonData.length, matchedRows, matchedCols, key };
-    } else if (jsonData && typeof jsonData === 'object' && key in jsonData) {
-      return { matchCount: 1, total: 1, matchedRows: new Set([0]), matchedCols: new Set([key]), key };
-    }
-    return null;
-  }
-
   async function filterByJsonPath(expr) {
     const jsonData = getJsonData();
     if (!jsonData) { toast('Load JSON first'); return; }
 
-    // Try fast path first (no library needed)
-    const fast = tryFastJsonPath(expr, jsonData);
-    if (fast) {
-      $('treeFilterInfo').className = 'tree-filter-info' + (fast.matchCount === 0 ? ' uf-no-match' : '');
-      $('ufResults').style.display = 'none';
-      if (fast.matchCount === 0) {
-        $('treeFilterInfo').textContent = '0 matches';
-        active = false;
-        return;
-      }
-      // Apply to tree view (DOM lines)
-      if (!isTableView()) {
-        const view = $('jsonView');
-        if (view) {
-          const lines = view.getElementsByClassName('j-line');
-          for (let i = 0; i < lines.length; i++) {
-            const el = lines[i];
-            const dp = el.querySelector('[data-path]')?.getAttribute('data-path') || '';
-            // Match lines whose path contains the key
-            const keyPattern = '.' + fast.key;
-            if (dp.endsWith(keyPattern) || dp.includes(keyPattern + '.') || dp.includes(keyPattern + '[')) {
-              el.classList.remove('filter-hidden');
-              el.querySelectorAll('.j-str, .j-num, .j-bool, .j-null').forEach(vs => vs.classList.add('filter-match'));
-            } else {
-              el.classList.add('filter-hidden');
-            }
-          }
-        }
-      }
-      $('treeFilterInfo').textContent = `${fast.matchCount.toLocaleString()} / ${fast.total.toLocaleString()} matched`;
-      if (isTableView()) {
-        window.App.simpleTable.setHighlight(fast.matchedRows, fast.matchedCols);
-        $('treeFilterInfo').textContent = `${fast.matchCount.toLocaleString()} / ${fast.total.toLocaleString()} rows matched`;
-      }
-      active = true;
-      return;
-    }
-
-    // Full JSONPath (slower, needs library)
     try { await window.App.libLoader.require('jsonpath'); }
     catch { toast('Could not load the advanced filter feature'); return; }
 
