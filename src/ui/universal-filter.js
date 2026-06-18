@@ -403,7 +403,9 @@ window.App.universalFilter = (() => {
     catch { toast('Could not load the advanced filter feature'); return; }
 
     try {
-      const result = JSONPath.JSONPath({ path: expr, json: jsonData, resultType: 'pointer' });
+      // Normalize: remove redundant dot before bracket (JSONPath-Plus quirk: $.[*] recurses, $[*] does not)
+      const normalizedExpr = expr.replace(/\.\[/g, '[');
+      const result = JSONPath.JSONPath({ path: normalizedExpr, json: jsonData, resultType: 'pointer' });
       $('treeFilterInfo').className = 'tree-filter-info' + (result.length === 0 ? ' uf-no-match' : '');
       $('ufResults').style.display = 'none';
 
@@ -432,7 +434,9 @@ window.App.universalFilter = (() => {
         const seg = ptr.indexOf('/', 1);
         topKeys.add(seg === -1 ? ptr.slice(1) : ptr.slice(1, seg));
       }
-      $('treeFilterInfo').textContent = `${topKeys.size.toLocaleString()} / ${dataTotal.toLocaleString()} rows matched (${result.length.toLocaleString()} nodes)`;
+      let infoText = `${topKeys.size.toLocaleString()} / ${dataTotal.toLocaleString()} rows matched`;
+      if (result.length !== topKeys.size) infoText += ` (${result.length.toLocaleString()} nodes)`;
+      $('treeFilterInfo').textContent = infoText;
       if (isTableView()) filterTableByJsonPath(result);
       active = true;
     } catch (err) {
