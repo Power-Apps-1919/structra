@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Structra</title>
   <link rel="icon" type="image/svg+xml" href="icons/icon.svg?v=2">
-  <link rel="stylesheet" href="src/css/styles.css?v=20260618">
+  <link rel="stylesheet" id="mainCSS" href="src/css/styles.css">
+  <script>document.getElementById('mainCSS').href='src/css/styles.css?v='+Date.now();</script>
 </head>
 <body>
   <div class="input-overlay" id="inputOverlay">
@@ -435,55 +436,27 @@
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <script>lucide.createIcons({attrs: {width: 14, height: 14, 'stroke-width': 1.5}});</script>
 
-  <!-- Scripts loaded in dependency order -->
-  <script src="src/utils/primitives.js?v=20260618"></script>
-  <script src="src/utils/traverse.js?v=20260618"></script>
-  <script src="src/utils/storage.js?v=20260618"></script>
-  <script src="src/utils/undo-stack.js?v=20260618"></script>
-  <script src="src/utils/dom.js?v=20260618"></script>
-  <script src="src/utils/json-utils.js?v=20260618"></script>
-  <script src="src/utils/data-mask.js?v=20260618"></script>
-  <script src="src/utils/code-gen.js?v=20260618"></script>
-  <script src="src/utils/path.js?v=20260618"></script>
-  <script src="src/utils/lib-loader.js?v=20260618"></script>
-  <script src="src/utils/mock-gen.js?v=20260618"></script>
-  <script src="src/utils/format-convert.js?v=20260618"></script>
-  <script src="src/ui/stats-panel.js?v=20260618"></script>
-  <script src="src/expressions/power-platform.js?v=20260618"></script>
-  <script src="src/expressions/helpers.js?v=20260618"></script>
-  <script src="src/expressions/schema-gen.js?v=20260618"></script>
-  <script src="src/ui/graph-view.js?v=20260618"></script>
-  <script src="src/ui/content-preview.js?v=20260618"></script>
-  <script src="src/ui/json-view.js?v=20260618"></script>
-  <script src="src/ui/views.js?v=20260618"></script>
-  <script src="src/ui/table-filter.js?v=20260618"></script>
-  <script src="src/ui/simple-table.js?v=20260618"></script>
-  <script src="src/ui/help-modal.js?v=20260618"></script>
-  <script src="src/ui/autocomplete.js?v=20260618"></script>
-  <script src="src/ui/universal-filter.js?v=20260618"></script>
-  <script src="src/utils/transform-ops.js?v=20260618"></script>
-  <script src="src/ui/transform-panel.js?v=20260618"></script>
-  <script src="src/ui/validator.js?v=20260618"></script>
-  <script src="src/ui/shortcuts-overlay.js?v=20260618"></script>
-  <script src="src/ui/command-palette.js?v=20260618"></script>
-  <script src="src/ui/data-viz.js?v=20260618"></script>
-  <script src="src/ui/data-profiler.js?v=20260618"></script>
-  <script src="src/ui/minimap.js?v=20260618"></script>
-  <script src="src/ui/pivot-table.js?v=20260618"></script>
-  <script src="src/ui/multi-tab.js?v=20260618"></script>
-  <script src="src/ui/snippet-library.js?v=20260618"></script>
-  <script src="src/ui/toolbar-pin.js?v=20260618"></script>
-  <script src="src/ui/workspace-export.js?v=20260618"></script>
-  <script src="src/ui/search.js?v=20260618"></script>
-  <script src="src/ui/json-editor.js?v=20260618"></script>
-  <script src="src/ui/null-finder.js?v=20260618"></script>
-  <script src="src/ui/type-def-modal.js?v=20260618"></script>
-  <script src="src/ui/zoom.js?v=20260618"></script>
-  <script src="src/ui/panel-resizer.js?v=20260618"></script>
-  <script src="src/ui/input-handler.js?v=20260618"></script>
-  <script src="src/ui/command-registry.js?v=20260618"></script>
-  <script src="src/ui/shortcuts-handler.js?v=20260618"></script>
-  <script src="src/ui/toolbar-actions.js?v=20260618"></script>
-  <script src="src/app.js?v=20260618"></script>
+  <!-- Scripts loaded in dependency order (cache-busted dynamically) -->
+  <script>
+  (function(){var v=Date.now(),s=[
+    'src/utils/primitives.js','src/utils/traverse.js','src/utils/storage.js',
+    'src/utils/undo-stack.js','src/utils/dom.js','src/utils/json-utils.js',
+    'src/utils/data-mask.js','src/utils/code-gen.js','src/utils/path.js',
+    'src/utils/lib-loader.js','src/utils/mock-gen.js','src/utils/format-convert.js',
+    'src/ui/stats-panel.js','src/expressions/power-platform.js',
+    'src/expressions/helpers.js','src/expressions/schema-gen.js',
+    'src/ui/graph-view.js','src/ui/content-preview.js','src/ui/json-view.js',
+    'src/ui/views.js','src/ui/table-filter.js','src/ui/simple-table.js',
+    'src/ui/help-modal.js','src/ui/autocomplete.js','src/ui/universal-filter.js',
+    'src/utils/transform-ops.js','src/ui/transform-panel.js','src/ui/validator.js',
+    'src/ui/shortcuts-overlay.js','src/ui/command-palette.js','src/ui/data-viz.js',
+    'src/ui/data-profiler.js','src/ui/minimap.js','src/ui/pivot-table.js',
+    'src/ui/multi-tab.js','src/ui/snippet-library.js','src/ui/toolbar-pin.js',
+    'src/ui/workspace-export.js','src/ui/search.js','src/ui/json-editor.js',
+    'src/ui/null-finder.js','src/ui/type-def-modal.js','src/ui/zoom.js',
+    'src/ui/panel-resizer.js','src/ui/input-handler.js','src/ui/command-registry.js',
+    'src/ui/shortcuts-handler.js','src/ui/toolbar-actions.js','src/app.js'
+  ];s.forEach(function(p){document.write('<script src="'+p+'?v='+v+'"><\/script>');});})();
+  </script>
 </body>
 </html>
