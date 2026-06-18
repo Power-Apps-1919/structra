@@ -306,8 +306,7 @@ window.App.universalFilter = (() => {
     // Identify matching row indices from JSONPath result pointers
     const matchedRows = new Set();
     const matchedCols = new Set();
-    for (const r of result) {
-      const ptr = typeof r.pointer === 'string' ? r.pointer : '';
+    for (const ptr of result) {
       const idxMatch = ptr.match(/\/(\d+)/);
       if (idxMatch) matchedRows.add(parseInt(idxMatch[1]));
       // Extract column name from pointer (e.g. /0/lastName → lastName)
@@ -451,7 +450,7 @@ window.App.universalFilter = (() => {
     catch { toast('Could not load the advanced filter feature'); return; }
 
     try {
-      const result = JSONPath.JSONPath({ path: expr, json: jsonData, resultType: 'all' });
+      const result = JSONPath.JSONPath({ path: expr, json: jsonData, resultType: 'pointer' });
       $('treeFilterInfo').className = 'tree-filter-info' + (result.length === 0 ? ' uf-no-match' : '');
       $('ufResults').style.display = 'none';
 
@@ -468,8 +467,7 @@ window.App.universalFilter = (() => {
 
       // Convert JSON pointer (/0/name) → data-path format ([0].name)
       const matchedPaths = new Set();
-      for (const r of result) {
-        const ptr = typeof r.pointer === 'string' ? r.pointer : '';
+      for (const ptr of result) {
         const converted = ptr.replace(/^\//, '').replace(/\/(\d+)/g, '[$1]').replace(/\//g, '.').replace(/^(\d+)/, '[$1]');
         matchedPaths.add(converted);
       }
