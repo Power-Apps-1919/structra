@@ -32,7 +32,9 @@ window.App = window.App || {};
   function initWorker() {
     try {
       jsonWorker = new Worker('src/workers/json-parser.js?v='+Date.now());
+      console.log('[V1] Worker created successfully');
     } catch (e) {
+      console.warn('[V1] Worker creation FAILED — using sync fallback:', e.message);
       jsonWorker = null; // Fallback to sync parse if worker fails
     }
   }
@@ -41,10 +43,12 @@ window.App = window.App || {};
   function parseJsonAsync(text) {
     return new Promise((resolve, reject) => {
       if (!jsonWorker) {
+        console.log('[V1] parseJsonAsync → SYNC fallback (' + (text.length / 1024).toFixed(1) + ' KB)');
         // Fallback: sync parse
         try { resolve(JSON.parse(text)); } catch (e) { reject(e); }
         return;
       }
+      console.log('[V1] parseJsonAsync → WORKER (' + (text.length / 1024).toFixed(1) + ' KB)');
       const id = ++jsonWorkerReqId;
       const handler = (e) => {
         if (e.data.id !== id) return;
